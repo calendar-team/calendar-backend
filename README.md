@@ -2,5 +2,11 @@
 The backend for calendar app
 
 ## How to build and run
-1. `cargo run`
-2. `curl localhost:8080/calendar/myCalendar`
+Start the server:
+```sh 
+cargo run
+```
+Make a request:
+```sh
+curl localhost:8080/calendar/myCalendar
+```
