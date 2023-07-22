@@ -1,5 +1,5 @@
 # calendar-backend
-The backend for calendar app
+The backend for the calendar app
 
 ## How to build and run
 Start the server:
