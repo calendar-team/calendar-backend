@@ -3,6 +3,8 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tide::prelude::*;
 use tide::{Request, Response, StatusCode};
+use tide::http::headers::HeaderValue;
+use tide::security::{CorsMiddleware, Origin};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -43,7 +45,14 @@ async fn main() -> tide::Result<()> {
     let state = State {
         conn: Arc::new(Mutex::new(conn)),
     };
+
+    let cors = CorsMiddleware::new()
+        .allow_methods("GET, POST, OPTIONS".parse::<HeaderValue>().unwrap())
+        .allow_origin(Origin::from("*"))
+        .allow_credentials(false);
+
     let mut app = tide::with_state(state);
+    app.with(cors);
 
     app.at("/calendar/:id").get(get_calendar2);
     app.at("/event").post(create_event2);
