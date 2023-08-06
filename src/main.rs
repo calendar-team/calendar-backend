@@ -1,17 +1,17 @@
-use futures::stream::TryStreamExt;
 use log::info;
-use mongodb::bson::{DateTime, doc};
-use mongodb::options::ClientOptions;
-use mongodb::Client;
+use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 use tide::prelude::*;
 use tide::{Request, Response, StatusCode};
+use tide::http::headers::HeaderValue;
+use tide::security::{CorsMiddleware, Origin};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
     name: String,
     calendar_id: String,
-    #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
-    date_time: DateTime,
+    // #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
+    date_time: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,38 +20,65 @@ struct Calendar {
     events: Vec<Event>,
 }
 
+#[derive(Clone)]
+struct State {
+    conn: Arc<Mutex<Connection>>,
+}
+
 #[async_std::main]
 async fn main() -> tide::Result<()> {
     env_logger::init();
     info!("starting up");
-    let mut app = tide::new();
-    app.at("/calendar/:id").get(get_calendar);
-    app.at("/event").post(create_event);
+
+    let conn = Connection::open_in_memory()?;
+
+    conn.execute(
+        "CREATE TABLE event (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            calendar_id TEXT NOT NULL,
+            date_time   TEXT NOT NULL
+        )",
+        (), // empty list of parameters.
+    )?;
+
+    let state = State {
+        conn: Arc::new(Mutex::new(conn)),
+    };
+
+    let cors = CorsMiddleware::new()
+        .allow_methods("GET, POST, OPTIONS".parse::<HeaderValue>().unwrap())
+        .allow_origin(Origin::from("*"))
+        .allow_credentials(false);
+
+    let mut app = tide::with_state(state);
+    app.with(cors);
+
+    app.at("/calendar/:id").get(get_calendar2);
+    app.at("/event").post(create_event2);
     app.listen("127.0.0.1:8080").await?;
     Ok(())
 }
 
-async fn get_calendar(req: Request<()>) -> tide::Result {
+async fn get_calendar2(req: Request<State>) -> tide::Result {
     let id = req.param("id")?;
     info!("getting calendar for {}", id);
-    let client = Client::with_options(ClientOptions::parse("mongodb://localhost:27017").await?)?;
-    let db = client.database("calendar");
-    let events_collection = db.collection::<Event>("events");
-    let filter = doc! { "calendar_id": id };
-    let mut cursor = events_collection.find(filter, None).await?;
+
+    let mut stmt_result = req.state().conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let mut stmt = conn.prepare("SELECT name, calendar_id, date_time FROM event")?;
+
+    let event_iter = stmt.query_map([], |row| {
+        Ok(Event {
+            name: row.get(0)?,
+            calendar_id: row.get(1)?,
+            date_time: row.get(2)?,
+        })
+    })?;
+
     let mut events = Vec::new();
-    loop {
-        let event = cursor.try_next().await;
-        match event {
-            Ok(event) => match event {
-                Some(event) => events.push(event),
-                None => break,
-            },
-            Err(e) => {
-                info!("error parsing event: {}", e);
-                return Ok(Response::new(StatusCode::InternalServerError));
-            }
-        }
+    for event in event_iter {
+        events.push(event.unwrap());
     }
 
     let calendar = Calendar {
@@ -62,17 +89,21 @@ async fn get_calendar(req: Request<()>) -> tide::Result {
     Ok(serde_json::to_string(&calendar)?.into())
 }
 
-async fn create_event(mut req: Request<()>) -> tide::Result {
-    info!("inserting a new event in db");
-    let client = Client::with_options(ClientOptions::parse("mongodb://localhost:27017").await?)?;
-    let db = client.database("calendar");
-    let events_collection = db.collection::<Event>("events");
+async fn create_event2(mut req: Request<State>) -> tide::Result {
     let event: tide::Result<Event> = req.body_json().await;
+
     match event {
         Ok(event) => {
-            let result = events_collection.insert_one(event, None).await;
+            let mut stmt_result = req.state().conn.lock().expect("failed to lock conn");
+            let conn = &mut *stmt_result;
+            let result = conn.execute(
+                "INSERT INTO event (name, calendar_id, date_time) VALUES (?1, ?2, ?3)",
+                (event.name, event.calendar_id, event.date_time),
+            );
             match result {
-                Ok(_) => {}
+                Ok(_) => {
+                    info!("inserted event");
+                }
                 Err(e) => {
                     info!("error inserting event: {}", e);
                     return Ok(Response::new(StatusCode::InternalServerError));
