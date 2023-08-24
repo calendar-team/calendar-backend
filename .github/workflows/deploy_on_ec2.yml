@@ -1,4 +1,4 @@
-name: Rust
+name: Deploy to EC2
 
 on:
   push:
@@ -28,4 +28,8 @@ jobs:
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
         SCRIPT_BEFORE: killall calendar-backend
-        SCRIPT_AFTER: nohup /home/ec2-user/calendar-backend/debug/calendar-backend &
+        SCRIPT_AFTER: |
+          echo "START"
+          nohup /home/ec2-user/calendar-backend/debug/calendar-backend &
+          echo "END"
+          echo $RSYNC_STDOUT
