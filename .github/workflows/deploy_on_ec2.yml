@@ -29,6 +29,7 @@ jobs:
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
         SCRIPT_BEFORE: killall calendar-backend
         SCRIPT_AFTER: |
-          /home/ec2-user/calendar-backend/debug/calendar-backend &;
+          ls
+          /home/ec2-user/calendar-backend/debug/calendar-backend &
           disown
           ls -la
