@@ -29,5 +29,5 @@ jobs:
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
         SCRIPT_BEFORE: killall calendar-backend
         SCRIPT_AFTER: |
-          ls -al
-          echo $RSYNC_STDOUT
+          /home/ec2-user/calendar-backend/debug/calendar-backend &
+          disown
