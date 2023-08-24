@@ -35,4 +35,5 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           killall calendar-backend
-          setsid /home/ec2-user/calendar-backend/debug/calendar-backend
+          RUST_LOG="debug" /home/ec2-user/calendar-backend/debug/calendar-backend&
+          disown
