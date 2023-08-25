@@ -27,12 +27,7 @@ jobs:
         TARGET: "/home/ec2-user/calendar-backend"
         REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
-    - name: restart the calendar-backend
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.REMOTE_HOST }}
-        username: ${{ secrets.REMOTE_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
+        SCRIPT_AFTER: |
           killall calendar-backend
-          nohup /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
+          RUST_LOG=debug /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
+          disown
