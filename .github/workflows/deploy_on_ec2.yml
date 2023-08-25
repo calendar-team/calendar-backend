@@ -35,4 +35,4 @@ jobs:
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         script: |
           killall calendar-backend
-          nohup RUST_LOG="debug" /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
+          nohup /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
