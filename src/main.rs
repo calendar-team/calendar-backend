@@ -1,10 +1,12 @@
 use log::info;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
-use tide::prelude::*;
-use tide::{Request, Response, StatusCode};
 use tide::http::headers::HeaderValue;
+use tide::prelude::*;
 use tide::security::{CorsMiddleware, Origin};
+use tide::{Request, Response, StatusCode};
+use tide_acme::rustls_acme::caches::DirCache;
+use tide_acme::{AcmeConfig, TideRustlsExt};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -56,7 +58,13 @@ async fn main() -> tide::Result<()> {
 
     app.at("/calendar/:id").get(get_calendar2);
     app.at("/event").post(create_event2);
-    app.listen("0.0.0.0:8080").await?;
+    app.listen(
+        tide_rustls::TlsListener::build().addrs("0.0.0.0:443").acme(
+            AcmeConfig::new(vec!["18.156.71.226"])
+                .cache(DirCache::new("/srv/example/tide-acme-cache-dir")),
+        ),
+    )
+    .await?;
     Ok(())
 }
 
