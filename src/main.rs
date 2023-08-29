@@ -58,7 +58,7 @@ async fn main() -> tide::Result<()> {
     app.at("/event").post(create_event2);
     app.listen(
         tide_rustls::TlsListener::build().addrs("0.0.0.0:8080")
-        .cert("/etc/letsencrypt/live/calendar.aguzovatii.com/cert.pem")
+        .cert("/etc/letsencrypt/live/calendar.aguzovatii.com/fullchain.pem")
         .key("/etc/letsencrypt/live/calendar.aguzovatii.com/privkey.pem"),
     )
     .await?;
