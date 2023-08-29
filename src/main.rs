@@ -60,7 +60,7 @@ async fn main() -> tide::Result<()> {
     app.at("/event").post(create_event2);
     app.listen(
         tide_rustls::TlsListener::build().addrs("0.0.0.0:443").acme(
-            AcmeConfig::new(vec!["18.156.71.226"])
+            AcmeConfig::new(vec!["calendar.aguzovatii.com"])
                 .contact_push("mailto:guzovatii.anatolii@gmail.com")
                 .cache(DirCache::new("/home/ec2-user/tide-acme-cache-dir")),
         ),
