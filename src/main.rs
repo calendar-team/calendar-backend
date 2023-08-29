@@ -5,8 +5,6 @@ use tide::http::headers::HeaderValue;
 use tide::prelude::*;
 use tide::security::{CorsMiddleware, Origin};
 use tide::{Request, Response, StatusCode};
-use tide_acme::rustls_acme::caches::DirCache;
-use tide_acme::{AcmeConfig, TideRustlsExt};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -59,11 +57,9 @@ async fn main() -> tide::Result<()> {
     app.at("/calendar/:id").get(get_calendar2);
     app.at("/event").post(create_event2);
     app.listen(
-        tide_rustls::TlsListener::build().addrs("0.0.0.0:443").acme(
-            AcmeConfig::new(vec!["calendar.aguzovatii.com"])
-                .contact_push("mailto:guzovatii.anatolii@gmail.com")
-                .cache(DirCache::new("/home/ec2-user/tide-acme-cache-dir")),
-        ),
+        tide_rustls::TlsListener::build().addrs("0.0.0.0:8080")
+        .cert("/etc/letsencrypt/live/calendar.aguzovatii.com/cert.pem")
+        .key("/etc/letsencrypt/live/calendar.aguzovatii.com/privkey.pem"),
     )
     .await?;
     Ok(())
