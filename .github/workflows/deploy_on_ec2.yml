@@ -2,7 +2,7 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ "add_tls_support" ]
+    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
