@@ -1,10 +1,11 @@
 use log::info;
+use std::env;
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
-use tide::prelude::*;
-use tide::{Request, Response, StatusCode};
 use tide::http::headers::HeaderValue;
+use tide::prelude::*;
 use tide::security::{CorsMiddleware, Origin};
+use tide::{Request, Response, StatusCode};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -56,7 +57,17 @@ async fn main() -> tide::Result<()> {
 
     app.at("/calendar/:id").get(get_calendar2);
     app.at("/event").post(create_event2);
-    app.listen("0.0.0.0:8080").await?;
+
+    if env::var("CALENDAR_USE_TLS").is_ok() {
+        app.listen(
+            tide_rustls::TlsListener::build().addrs("0.0.0.0:8080")
+            .cert("/etc/letsencrypt/live/calendar.aguzovatii.com/fullchain.pem")
+            .key("/etc/letsencrypt/live/calendar.aguzovatii.com/privkey.pem"),
+        )
+        .await?;
+    } else {
+        app.listen("0.0.0.0:8080").await?;
+    }
     Ok(())
 }
 
