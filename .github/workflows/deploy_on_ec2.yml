@@ -29,5 +29,5 @@ jobs:
         REMOTE_USER: ${{ secrets.REMOTE_USER }}
         SCRIPT_AFTER: |
           sudo killall calendar-backend
-          sudo RUST_LOG=debug /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
+          sudo RUST_LOG=debug CALENDAR_USE_TLS=1 /home/ec2-user/calendar-backend/debug/calendar-backend  > ./output.log 2>&1 &
           disown
