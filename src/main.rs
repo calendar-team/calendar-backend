@@ -61,8 +61,8 @@ async fn main() -> tide::Result<()> {
     if env::var("CALENDAR_USE_TLS").is_ok() {
         app.listen(
             tide_rustls::TlsListener::build().addrs("0.0.0.0:8080")
-            .cert("/etc/letsencrypt/live/calendar.aguzovatii.com/fullchain.pem")
-            .key("/etc/letsencrypt/live/calendar.aguzovatii.com/privkey.pem"),
+            .cert("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/fullchain.pem")
+            .key("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/privkey.pem"),
         )
         .await?;
     } else {
