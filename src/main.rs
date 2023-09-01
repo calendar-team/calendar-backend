@@ -55,8 +55,8 @@ async fn main() -> tide::Result<()> {
     let mut app = tide::with_state(state);
     app.with(cors);
 
-    app.at("/calendar/:id").get(get_calendar2);
-    app.at("/event").post(create_event2);
+    app.at("/calendar/:id").get(get_calendar);
+    app.at("/event").post(create_event);
 
     if env::var("CALENDAR_USE_TLS").is_ok() {
         app.listen(
@@ -71,7 +71,7 @@ async fn main() -> tide::Result<()> {
     Ok(())
 }
 
-async fn get_calendar2(req: Request<State>) -> tide::Result {
+async fn get_calendar(req: Request<State>) -> tide::Result {
     let id = req.param("id")?;
     info!("getting calendar for {}", id);
 
@@ -100,7 +100,7 @@ async fn get_calendar2(req: Request<State>) -> tide::Result {
     Ok(serde_json::to_string(&calendar)?.into())
 }
 
-async fn create_event2(mut req: Request<State>) -> tide::Result {
+async fn create_event(mut req: Request<State>) -> tide::Result {
     let event: tide::Result<Event> = req.body_json().await;
 
     match event {
