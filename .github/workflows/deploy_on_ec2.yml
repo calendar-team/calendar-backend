@@ -2,7 +2,7 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ "migrate_to_actix_web" ]
+    branches: [ "master" ]
 
 env:
   CARGO_TERM_COLOR: always
