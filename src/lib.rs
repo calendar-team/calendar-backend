@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
+use actix_web::dev::Server;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -28,7 +29,7 @@ struct State {
     conn: Arc<Mutex<Connection>>,
 }
 
-pub async fn run() -> std::io::Result<()> {
+pub fn run() -> Result<Server, std::io::Error> {
 
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     let conn = Connection::open_in_memory().unwrap();
@@ -65,9 +66,8 @@ pub async fn run() -> std::io::Result<()> {
         server = server.bind(("0.0.0.0", 8080))?;
     }
 
-    server.run().await
+    Ok(server.run())
 }
-
 
 #[post("/event")]
 async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpResponse {
