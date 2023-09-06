@@ -12,6 +12,7 @@ use actix_web::dev::Server;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
+    username: String,
     name: String,
     calendar_id: String,
     // #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
@@ -22,6 +23,12 @@ struct Event {
 struct Calendar {
     id: String,
     events: Vec<Event>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct User {
+    username: String,
+    password: String,
 }
 
 #[derive(Clone)]
@@ -37,11 +44,22 @@ pub fn run() -> Result<Server, std::io::Error> {
     conn.execute(
         "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
+            username    TEXT NOT NULL,
             name        TEXT NOT NULL,
             calendar_id TEXT NOT NULL,
             date_time   TEXT NOT NULL
         )",
         (), // empty list of parameters.
+    )
+        .unwrap();
+
+    conn.execute(
+        "CREATE TABLE user (
+            id        INTEGER PRIMARY KEY,
+            username  TEXT NOT NULL,
+            password  TEXT NOT NULL
+        )",
+        (),
     )
         .unwrap();
 
@@ -58,6 +76,7 @@ pub fn run() -> Result<Server, std::io::Error> {
             .wrap(Cors::permissive())
             .service(create_event)
             .service(get_calendar)
+            .service(create_user)
     });
 
     if env::var("CALENDAR_USE_TLS").is_ok() {
@@ -75,8 +94,8 @@ async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpR
     let conn = &mut *stmt_result;
 
     let result = conn.execute(
-        "INSERT INTO event (name, calendar_id, date_time) VALUES (?1, ?2, ?3)",
-        (&event.name, &event.calendar_id, &event.date_time),
+        "INSERT INTO event (username, name, calendar_id, date_time) VALUES (?1, ?2, ?3, ?4)",
+        (&event.username, &event.name, &event.calendar_id, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -90,19 +109,20 @@ async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpR
     HttpResponse::Created().finish()
 }
 
-#[get("/calendar/{id}")]
-async fn get_calendar(id: web::Path<String>, state: web::Data<State>) -> HttpResponse {
-    info!("getting calendar for {}", id);
+#[get("/calendar/{username}")]
+async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> HttpResponse {
+    info!("getting calendar for {}", username);
 
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT name, calendar_id, date_time FROM event")
+        .prepare("SELECT name, calendar_id, date_time FROM event WHERE username = ?1")
         .unwrap();
 
     let event_iter = stmt
-        .query_map([], |row| {
+        .query_map(&[username.as_str()], |row| {
             Ok(Event {
+                username: "".parse().unwrap(),
                 name: row.get(0)?,
                 calendar_id: row.get(1)?,
                 date_time: row.get(2)?,
@@ -116,11 +136,32 @@ async fn get_calendar(id: web::Path<String>, state: web::Data<State>) -> HttpRes
     }
 
     let calendar = Calendar {
-        id: id.to_string(),
+        id: username.to_string(),
         events,
     };
 
     HttpResponse::Ok().json(calendar)
+}
+
+#[post("/signup")]
+async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
+    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let result = conn.execute(
+        "INSERT INTO user (username, password) VALUES (?1, ?2)",
+        (&user.username, &user.password),
+    );
+    match result {
+        Ok(_) => {
+            info!("inserted user");
+        }
+        Err(u) => {
+            info!("error inserting user: {}", u);
+            return HttpResponse::InternalServerError().finish();
+        }
+    }
+    HttpResponse::Created().finish()
 }
 
 fn load_rustls_config() -> rustls::ServerConfig {
