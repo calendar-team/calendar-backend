@@ -31,4 +31,3 @@ fn spawn_app() {
     let server = run().expect("Failed to bind address");
     let _ = tokio::spawn(server);
 }
-
