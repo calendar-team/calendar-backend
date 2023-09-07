@@ -122,7 +122,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
     let event_iter = stmt
         .query_map(&[username.as_str()], |row| {
             Ok(Event {
-                username: "".parse().unwrap(),
+                username: username.to_string(),
                 name: row.get(0)?,
                 calendar_id: row.get(1)?,
                 date_time: row.get(2)?,
