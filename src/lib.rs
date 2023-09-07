@@ -143,7 +143,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
     HttpResponse::Ok().json(calendar)
 }
 
-#[post("/signup")]
+#[post("/user")]
 async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
