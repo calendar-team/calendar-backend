@@ -2,7 +2,6 @@ use calendar_backend::run;
 
 #[tokio::test]
 async fn create_event_works() {
-
     // Arrange
     spawn_app();
 
