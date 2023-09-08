@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_web::dev::Server;
 use actix_web::{get, middleware::Logger, post, web, App, HttpResponse, HttpServer};
 use log::info;
 use rusqlite::Connection;
@@ -8,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
-use actix_web::dev::Server;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -37,7 +37,6 @@ struct State {
 }
 
 pub fn run() -> Result<Server, std::io::Error> {
-
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     let conn = Connection::open_in_memory().unwrap();
 
@@ -51,7 +50,7 @@ pub fn run() -> Result<Server, std::io::Error> {
         )",
         (), // empty list of parameters.
     )
-        .unwrap();
+    .unwrap();
 
     conn.execute(
         "CREATE TABLE user (
@@ -61,7 +60,7 @@ pub fn run() -> Result<Server, std::io::Error> {
         )",
         (),
     )
-        .unwrap();
+    .unwrap();
 
     let state = State {
         conn: Arc::new(Mutex::new(conn)),
@@ -96,7 +95,12 @@ async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpR
 
     let result = conn.execute(
         "INSERT INTO event (username, name, calendar_id, date_time) VALUES (?1, ?2, ?3, ?4)",
-        (&event.username, &event.name, &event.calendar_id, &event.date_time),
+        (
+            &event.username,
+            &event.name,
+            &event.calendar_id,
+            &event.date_time,
+        ),
     );
     match result {
         Ok(_) => {
