@@ -178,9 +178,11 @@ async fn login(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
         .prepare("SELECT COUNT(username) FROM user WHERE username = ?1 and password = ?2")
         .unwrap();
 
-    let count: i64 = stmt.query_row(&[user.username.as_str(), user.password.as_str()], |row| {
-        row.get(0)
-    }).unwrap();
+    let count: i64 = stmt
+        .query_row(&[user.username.as_str(), user.password.as_str()], |row| {
+            row.get(0)
+        })
+        .unwrap();
 
     if count == 1 {
         return HttpResponse::Ok().finish();
