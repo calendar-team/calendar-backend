@@ -77,6 +77,7 @@ pub fn run() -> Result<Server, std::io::Error> {
             .service(create_event)
             .service(get_calendar)
             .service(create_user)
+            .service(login)
     });
 
     if env::var("CALENDAR_USE_TLS").is_ok() {
@@ -162,6 +163,25 @@ async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResp
         }
     }
     HttpResponse::Created().finish()
+}
+
+#[post("/login")]
+async fn login(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
+    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let mut stmt = conn
+        .prepare("SELECT COUNT(username) FROM user WHERE username = ?1 and password = ?2")
+        .unwrap();
+
+    let count: i64 = stmt.query_row(&[user.username.as_str(), user.password.as_str()], |row| {
+        row.get(0)
+    }).unwrap();
+
+    if count == 1 {
+        return HttpResponse::Ok().finish();
+    }
+    HttpResponse::Unauthorized().finish()
 }
 
 fn load_rustls_config() -> rustls::ServerConfig {
