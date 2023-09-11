@@ -73,8 +73,11 @@ pub fn run() -> Result<Server, std::io::Error> {
         let mut cors = Cors::default()
             .allowed_origin("https://calendar.aguzovatii.com")
             .allowed_methods(vec!["GET", "POST"])
-            .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-            .allowed_header(header::CONTENT_TYPE)
+            .allowed_headers(vec![
+                header::AUTHORIZATION,
+                header::ACCEPT,
+                header::CONTENT_TYPE,
+            ])
             .max_age(3600);
 
         if !env::var("CALENDAR_IS_PROD_ENV").is_ok() {
