@@ -1,5 +1,6 @@
 use actix_cors::Cors;
 use actix_web::dev::Server;
+use actix_web::http::header;
 use actix_web::{get, middleware::Logger, post, web, App, HttpResponse, HttpServer};
 use log::info;
 use rusqlite::Connection;
@@ -69,17 +70,31 @@ pub fn run() -> Result<Server, std::io::Error> {
     let data = web::Data::new(state);
 
     let mut server = HttpServer::new(move || {
+        let mut cors = Cors::default()
+            .allowed_origin("https://calendar.aguzovatii.com")
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                header::AUTHORIZATION,
+                header::ACCEPT,
+                header::CONTENT_TYPE,
+            ])
+            .max_age(3600);
+
+        if !env::var("CALENDAR_IS_PROD_ENV").is_ok() {
+            cors = cors.allowed_origin("http://localhost:3000")
+        }
+
         App::new()
             .app_data(web::Data::clone(&data))
             .wrap(Logger::default())
-            .wrap(Cors::permissive())
+            .wrap(cors)
             .service(create_event)
             .service(get_calendar)
             .service(create_user)
             .service(login)
     });
 
-    if env::var("CALENDAR_USE_TLS").is_ok() {
+    if env::var("CALENDAR_IS_PROD_ENV").is_ok() {
         server = server.bind_rustls_021("0.0.0.0:8080", load_rustls_config())?;
     } else {
         server = server.bind(("0.0.0.0", 8080))?;
