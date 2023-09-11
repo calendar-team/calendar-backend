@@ -70,7 +70,7 @@ pub fn run() -> Result<Server, std::io::Error> {
     let data = web::Data::new(state);
 
     let mut server = HttpServer::new(move || {
-        let cors = Cors::default()
+        let mut cors = Cors::default()
             .allowed_origin("https://calendar.aguzovatii.com")
             .allowed_methods(vec!["GET", "POST"])
             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
@@ -78,7 +78,7 @@ pub fn run() -> Result<Server, std::io::Error> {
             .max_age(3600);
 
         if !env::var("CALENDAR_IS_PROD_ENV").is_ok() {
-            cors.allowed_origin("http://localhost:3000")
+            cors = cors.allowed_origin("http://localhost:3000")
         }
 
         App::new()
