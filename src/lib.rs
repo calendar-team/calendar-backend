@@ -38,7 +38,7 @@ struct State {
 }
 
 pub fn run() -> Result<Server, std::io::Error> {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
     let conn = Connection::open_in_memory().unwrap();
 
     conn.execute(
