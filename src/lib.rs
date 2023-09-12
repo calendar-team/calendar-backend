@@ -8,6 +8,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
 
@@ -37,7 +38,7 @@ struct State {
     conn: Arc<Mutex<Connection>>,
 }
 
-pub fn run() -> Result<Server, std::io::Error> {
+pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
     let conn = Connection::open_in_memory().unwrap();
 
@@ -95,9 +96,9 @@ pub fn run() -> Result<Server, std::io::Error> {
     });
 
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() {
-        server = server.bind_rustls_021("0.0.0.0:8080", load_rustls_config())?;
+        server = server.listen_rustls_0_21(tcp_listener, load_rustls_config())?;
     } else {
-        server = server.bind(("0.0.0.0", 8080))?;
+        server = server.listen(tcp_listener)?;
     }
 
     Ok(server.run())
