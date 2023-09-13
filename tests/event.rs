@@ -73,7 +73,6 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     // Arrange - event without name
     let event = serde_json::json!({
         "username": "djacota",
-        "calendar_id": "djacota",
         "date_time": "09-05-2023"
     });
 
@@ -93,7 +92,6 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     let event = serde_json::json!({
         "username": "djacota",
         "name": "add_bad_request_test",
-        "calendar_id": "djacota"
     });
 
     // Act
@@ -116,7 +114,6 @@ async fn event_requests_missing_authorization_are_rejected() {
     let event = serde_json::json!({
         "username": "djacota",
         "name": "implement_basic_authentication",
-        "calendar_id": "djacota",
         "date_time": "09-05-2023"
     });
 
@@ -140,7 +137,6 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     let event = serde_json::json!({
         "username": "djacota",
         "name": "implement_basic_authentication",
-        "calendar_id": "djacota",
         "date_time": "09-05-2023"
     });
 
