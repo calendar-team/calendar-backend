@@ -16,14 +16,12 @@ use std::{fs::File, io::BufReader};
 struct Event {
     username: String,
     name: String,
-    calendar_id: String,
     // #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
     date_time: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Calendar {
-    id: String,
     events: Vec<Event>,
 }
 
@@ -47,7 +45,6 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
             id          INTEGER PRIMARY KEY,
             username    TEXT NOT NULL,
             name        TEXT NOT NULL,
-            calendar_id TEXT NOT NULL,
             date_time   TEXT NOT NULL
         )",
         (), // empty list of parameters.
@@ -110,13 +107,8 @@ async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpR
     let conn = &mut *stmt_result;
 
     let result = conn.execute(
-        "INSERT INTO event (username, name, calendar_id, date_time) VALUES (?1, ?2, ?3, ?4)",
-        (
-            &event.username,
-            &event.name,
-            &event.calendar_id,
-            &event.date_time,
-        ),
+        "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
+        (&event.username, &event.name, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -137,7 +129,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT name, calendar_id, date_time FROM event WHERE username = ?1")
+        .prepare("SELECT name, date_time FROM event WHERE username = ?1")
         .unwrap();
 
     let event_iter = stmt
@@ -145,8 +137,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
             Ok(Event {
                 username: username.to_string(),
                 name: row.get(0)?,
-                calendar_id: row.get(1)?,
-                date_time: row.get(2)?,
+                date_time: row.get(1)?,
             })
         })
         .unwrap();
@@ -156,10 +147,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
         events.push(event.unwrap());
     }
 
-    let calendar = Calendar {
-        id: username.to_string(),
-        events,
-    };
+    let calendar = Calendar { events };
 
     HttpResponse::Ok().json(calendar)
 }
