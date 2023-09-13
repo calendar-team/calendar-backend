@@ -146,12 +146,7 @@ async fn create_event(
 
     let result = conn.execute(
         "INSERT INTO event (user_id, username, name, date_time) VALUES (?1, ?2, ?3, ?4)",
-        (
-            &user_id,
-            &event.username,
-            &event.name,
-            &event.date_time,
-        ),
+        (&user_id, &event.username, &event.name, &event.date_time),
     );
     match result {
         Ok(_) => {
