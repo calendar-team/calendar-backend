@@ -9,7 +9,6 @@ async fn create_event_works() {
     let event = serde_json::json!({
         "username": "djacota",
         "name": "write_integration_tests",
-        "calendar_id": "djacota",
         "date_time": "09-05-2023"
     });
 
