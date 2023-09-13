@@ -107,11 +107,7 @@ async fn create_event(event: web::Json<Event>, state: web::Data<State>) -> HttpR
 
     let result = conn.execute(
         "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
-        (
-            &event.username,
-            &event.name,
-            &event.date_time,
-        ),
+        (&event.username, &event.name, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -150,9 +146,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
         events.push(event.unwrap());
     }
 
-    let calendar = Calendar {
-        events,
-    };
+    let calendar = Calendar { events };
 
     HttpResponse::Ok().json(calendar)
 }
