@@ -8,6 +8,7 @@ use actix_web::{
 use anyhow::Context;
 use base64::Engine;
 use log::info;
+use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
@@ -18,7 +19,6 @@ use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
-use regex::Regex;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -101,7 +101,8 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
 
     let mut server = HttpServer::new(move || {
         //defining this regex outside in order to avoid to recompile it on every request
-        let vercel_origin: Regex = Regex::new(r"^https://calendar-frontend-.*\.vercel\.app$").unwrap();
+        let vercel_origin: Regex =
+            Regex::new(r"^https://calendar-frontend-.*\.vercel\.app$").unwrap();
         let mut cors = Cors::default()
             .allowed_origin("https://calendar.aguzovatii.com")
             .allowed_origin_fn(move |origin, _req_head|{
