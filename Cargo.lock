@@ -382,6 +382,7 @@ dependencies = [
  "base64",
  "env_logger",
  "log",
+ "regex",
  "reqwest",
  "rusqlite",
  "rustls",
