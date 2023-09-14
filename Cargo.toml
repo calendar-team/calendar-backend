@@ -28,3 +28,4 @@ base64 = "0.21"
 secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
+regex = "1.9.5"

@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
+use regex::Regex;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -99,8 +100,22 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
     let data = web::Data::new(state);
 
     let mut server = HttpServer::new(move || {
+        //defining this regex outside in order to avoid to recompile it on every request
+        let vercel_origin: Regex = Regex::new(r"^https://calendar-frontend-.*\.vercel\.app$").unwrap();
         let mut cors = Cors::default()
             .allowed_origin("https://calendar.aguzovatii.com")
+            .allowed_origin_fn(move |origin, _req_head|{
+                let result = origin.to_str();
+                match result {
+                    Ok(origin) => {
+                        vercel_origin.is_match(origin)
+                    }
+                    Err(_) => {
+                        info!("CORS: Origin denied because it doesn't contain only visible ASCII chars.");
+                        false
+                    }
+                }
+            })
             .allowed_methods(vec!["GET", "POST"])
             .allowed_headers(vec![
                 header::AUTHORIZATION,
