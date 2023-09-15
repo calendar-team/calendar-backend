@@ -153,6 +153,50 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     assert_eq!(401, response.status().as_u16());
 }
 
+#[tokio::test]
+async fn login_works_for_valid_credentials() {
+    // Arrange - create the user
+    let address = spawn_app();
+    let username = "djacota";
+    let password = "password";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    // Assert
+    assert!(response.status().is_success());
+    assert_eq!(Some(0), response.content_length());
+
+    // Arrange - login
+    let user = serde_json::json!({
+        "username": "djacota",
+        "password": "password"
+    });
+
+    // Act
+    let response_event = reqwest::Client::new()
+        .post(&format!("{}/login", &address))
+        .basic_auth(username, Some(password))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    // Assert
+    assert!(response_event.status().is_success());
+    assert_eq!(Some(0), response_event.content_length());
+}
+
 // launch the server as a background task
 fn spawn_app() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
