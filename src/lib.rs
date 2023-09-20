@@ -349,5 +349,5 @@ fn password_hash(password: &String) -> String {
 
     // Lowercase hexadecimal encoding.
     let password_hash = format!("{:x}", password_hash);
-    return password_hash;
+    password_hash
 }
