@@ -14,6 +14,7 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
+use sha3::Digest;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
@@ -85,9 +86,9 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
 
     conn.execute(
         "CREATE TABLE user (
-            id        INTEGER PRIMARY KEY,
-            username  TEXT NOT NULL UNIQUE,
-            password  TEXT NOT NULL
+            id             INTEGER PRIMARY KEY,
+            username       TEXT NOT NULL UNIQUE,
+            password_hash  TEXT NOT NULL
         )",
         (),
     )
@@ -213,9 +214,11 @@ async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResp
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
+    let password_hash = password_hash(&user.password);
+
     let result = conn.execute(
-        "INSERT INTO user (username, password) VALUES (?1, ?2)",
-        (&user.username, &user.password),
+        "INSERT INTO user (username, password_hash) VALUES (?1, ?2)",
+        (&user.username, &password_hash),
     );
     match result {
         Ok(_) => {
@@ -234,12 +237,14 @@ async fn login(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
+    let password_hash = password_hash(&user.password);
+
     let mut stmt = conn
-        .prepare("SELECT COUNT(username) FROM user WHERE username = ?1 and password = ?2")
+        .prepare("SELECT COUNT(username) FROM user WHERE username = ?1 and password_hash = ?2")
         .unwrap();
 
     let count: i64 = stmt
-        .query_row(&[user.username.as_str(), user.password.as_str()], |row| {
+        .query_row(&[user.username.as_str(), password_hash.as_str()], |row| {
             row.get(0)
         })
         .unwrap();
@@ -322,15 +327,14 @@ async fn validate_credentials(
     conn: &Connection,
 ) -> Result<i64, CustomError> {
     let mut stmt = conn
-        .prepare("SELECT id FROM user WHERE username = ?1 and password = ?2")
+        .prepare("SELECT id FROM user WHERE username = ?1 and password_hash = ?2")
         .unwrap();
+
+    let password_hash = password_hash(credentials.password.expose_secret());
 
     let id: Option<i64> = stmt
         .query_row(
-            &[
-                credentials.username.as_str(),
-                credentials.password.expose_secret().as_str(),
-            ],
+            &[credentials.username.as_str(), password_hash.as_str()],
             |row| row.get(0),
         )
         .optional()
@@ -338,4 +342,12 @@ async fn validate_credentials(
 
     return id
         .ok_or_else(|| CustomError::AuthError(anyhow::anyhow!("Invalid username or password.")));
+}
+
+fn password_hash(password: &String) -> String {
+    let password_hash = sha3::Sha3_256::digest(password.as_bytes());
+
+    // Lowercase hexadecimal encoding.
+    let password_hash = format!("{:x}", password_hash);
+    password_hash
 }
