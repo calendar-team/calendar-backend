@@ -29,4 +29,4 @@ secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
 regex = "1.9.5"
-sha3 = "0.9"
+sha3 = "0.10"
