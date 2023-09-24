@@ -6,6 +6,8 @@ use actix_web::{
     get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer, ResponseError,
 };
 use anyhow::Context;
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use base64::Engine;
 use log::info;
 use regex::Regex;
@@ -14,7 +16,6 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
-use sha3::Digest;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
@@ -75,19 +76,17 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
     conn.execute(
         "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
-            user_id     INTEGER NOT NULL,
             username    TEXT NOT NULL,
             name        TEXT NOT NULL,
             date_time   TEXT NOT NULL
         )",
-        (), // empty list of parameters.
+        (),
     )
     .unwrap();
 
     conn.execute(
         "CREATE TABLE user (
-            id             INTEGER PRIMARY KEY,
-            username       TEXT NOT NULL UNIQUE,
+            username       TEXT PRIMARY KEY,
             password_hash  TEXT NOT NULL
         )",
         (),
@@ -159,11 +158,11 @@ async fn create_event(
     let conn = &mut *stmt_result;
 
     let credentials = basic_authentication(req.headers()).map_err(CustomError::AuthError)?;
-    let user_id = validate_credentials(credentials, conn).await?;
+    validate_credentials(credentials, conn).await?;
 
     let result = conn.execute(
-        "INSERT INTO event (user_id, username, name, date_time) VALUES (?1, ?2, ?3, ?4)",
-        (&user_id, &event.username, &event.name, &event.date_time),
+        "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
+        (&event.username, &event.name, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -210,11 +209,14 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
 }
 
 #[post("/user")]
-async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
+async fn create_user(
+    user: web::Json<User>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let password_hash = password_hash(&user.password);
+    let password_hash = hash(&user.password);
 
     let result = conn.execute(
         "INSERT INTO user (username, password_hash) VALUES (?1, ?2)",
@@ -226,36 +228,32 @@ async fn create_user(user: web::Json<User>, state: web::Data<State>) -> HttpResp
         }
         Err(u) => {
             info!("error inserting user: {}", u);
-            return HttpResponse::InternalServerError().finish();
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when saving the user"
+            )));
         }
     }
-    HttpResponse::Created().finish()
+    Ok(HttpResponse::Created().finish())
 }
 
 #[post("/login")]
-async fn login(user: web::Json<User>, state: web::Data<State>) -> HttpResponse {
+async fn login(
+    user: web::Json<User>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let password_hash = password_hash(&user.password);
+    let credentials = Credentials {
+        username: user.username.clone(),
+        password: user.password.parse().unwrap(),
+    };
+    validate_credentials(credentials, conn).await?;
 
-    let mut stmt = conn
-        .prepare("SELECT COUNT(username) FROM user WHERE username = ?1 and password_hash = ?2")
-        .unwrap();
-
-    let count: i64 = stmt
-        .query_row(&[user.username.as_str(), password_hash.as_str()], |row| {
-            row.get(0)
-        })
-        .unwrap();
-
-    if count == 1 {
-        return HttpResponse::Ok().finish();
-    }
-    HttpResponse::Unauthorized().finish()
+    Ok(HttpResponse::Ok().finish())
 }
 
-fn load_rustls_config() -> rustls::ServerConfig {
+fn load_rustls_config() -> ServerConfig {
     // init server config builder with safe defaults
     let config = ServerConfig::builder()
         .with_safe_defaults()
@@ -325,29 +323,45 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
 async fn validate_credentials(
     credentials: Credentials,
     conn: &Connection,
-) -> Result<i64, CustomError> {
+) -> Result<(), CustomError> {
+    info!("validating credentials for {}", credentials.username);
+
     let mut stmt = conn
-        .prepare("SELECT id FROM user WHERE username = ?1 and password_hash = ?2")
+        .prepare("SELECT password_hash FROM user WHERE username = ?1")
         .unwrap();
 
-    let password_hash = password_hash(credentials.password.expose_secret());
-
-    let id: Option<i64> = stmt
-        .query_row(
-            &[credentials.username.as_str(), password_hash.as_str()],
-            |row| row.get(0),
-        )
+    let password_hash: Option<String> = stmt
+        .query_row(&[credentials.username.as_str()], |row| row.get(0))
         .optional()
         .unwrap();
 
-    return id
-        .ok_or_else(|| CustomError::AuthError(anyhow::anyhow!("Invalid username or password.")));
+    if password_hash.is_none() {
+        return Err(CustomError::AuthError(anyhow::anyhow!(
+            "Invalid username or password."
+        )));
+    }
+    let password_hash = password_hash.unwrap();
+
+    let expected_password = PasswordHash::new(&password_hash)
+        .context("Failed to parse hash in PHC string format.")
+        .map_err(CustomError::UnexpectedError)?;
+
+    Argon2::default()
+        .verify_password(
+            credentials.password.expose_secret().as_bytes(),
+            &expected_password,
+        )
+        .context("Invalid password.")
+        .map_err(CustomError::AuthError)?;
+
+    Ok(())
 }
 
-fn password_hash(password: &String) -> String {
-    let password_hash = sha3::Sha3_256::digest(password.as_bytes());
+fn hash(password: &String) -> String {
+    let salt = SaltString::generate(&mut rand::thread_rng());
 
-    // Lowercase hexadecimal encoding.
-    let password_hash = format!("{:x}", password_hash);
-    password_hash
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .unwrap()
+        .to_string()
 }
