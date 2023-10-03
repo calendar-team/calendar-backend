@@ -21,6 +21,7 @@ use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::{fs::File, io::BufReader};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -241,7 +242,7 @@ async fn login(
     user: web::Json<User>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
-    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
     let credentials = Credentials {
@@ -250,7 +251,29 @@ async fn login(
     };
     validate_credentials(credentials, conn).await?;
 
+    generate_jwt(user.username.clone());
     Ok(HttpResponse::Ok().finish())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    exp: usize,
+}
+
+fn generate_jwt(username : String){
+    
+    let key = b"secret";
+    let my_claims = Claims {
+        sub: username,
+        exp: 10000000000,
+    };
+    let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(key)) {
+        Ok(t) => t,
+        Err(_) => panic!(), // in practice you would return the error
+    };
+
+    info!("token {}", token);
 }
 
 fn load_rustls_config() -> ServerConfig {

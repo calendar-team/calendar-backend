@@ -31,3 +31,4 @@ thiserror = "1"
 regex = "1.10.0"
 argon2 = { version = "0.5.1", features = ["std"] }
 rand = "0.8.4"
+jsonwebtoken = "8.3.0"
