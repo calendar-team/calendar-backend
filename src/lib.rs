@@ -165,12 +165,11 @@ async fn create_event(
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let credentials = basic_authentication(req.headers()).map_err(CustomError::AuthError)?;
-    validate_credentials(credentials, conn).await?;
+    let username = basic_authentication(req.headers()).map_err(CustomError::AuthError)?;
 
     let result = conn.execute(
         "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
-        (&event.username, &event.name, &event.date_time),
+        (&username, &event.name, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -241,7 +240,10 @@ async fn create_user(
             )));
         }
     }
-    Ok(HttpResponse::Created().finish())
+
+    let jwt = Jwt { token: generate_jwt(user.username.clone()) };
+
+    Ok(HttpResponse::Created().json(jwt))
 }
 
 #[post("/login")]
@@ -287,17 +289,6 @@ fn generate_jwt(username : String) -> String{
     info!("token {}", token);
 
     token
-
-    /*let mut validation = Validation::new(Algorithm::HS256);
-    validation.sub = Some(username);
-    let token_data = match decode::<Claims>(&token, &DecodingKey::from_secret(key), &validation) {
-        Ok(c) => c,
-        Err(err) => {
-            info!("err {}", err);
-            panic!("Some other errors")
-        },
-    };
-    info!("decoded token data {:?}", token_data);*/
 }
 
 fn load_rustls_config() -> ServerConfig {
@@ -335,7 +326,7 @@ fn load_rustls_config() -> ServerConfig {
     config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
 }
 
-fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Error> {
+fn basic_authentication(headers: &HeaderMap) -> Result<String, anyhow::Error> {
     // The header value, if present, must be a valid UTF8 string
     let header_value = headers
         .get("Authorization")
@@ -343,28 +334,20 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
         .to_str()
         .context("The 'Authorization' header was not a valid UTF8 string.")?;
     let base64encoded_segment = header_value
-        .strip_prefix("Basic ")
-        .context("The authorization scheme was not 'Basic'.")?;
-    let decoded_bytes = base64::engine::general_purpose::STANDARD
-        .decode(base64encoded_segment)
-        .context("Failed to base64-decode 'Basic' credentials.")?;
-    let decoded_credentials = String::from_utf8(decoded_bytes)
-        .context("The decoded credential string is not valid UTF8.")?;
-    // Split into two segments, using ':' as delimiter
-    let mut credentials = decoded_credentials.splitn(2, ':');
-    let username = credentials
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("A username must be provided in 'Basic' auth."))?
-        .to_string();
-    let password = credentials
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("A password must be provided in 'Basic' auth."))?
-        .to_string();
+        .strip_prefix("Bearer ")
+        .context("The authorization scheme was not 'Bearer'.")?;
+    let key = b"secret";
 
-    Ok(Credentials {
-        username,
-        password: Secret::new(password),
-    })
+    let token_data = match decode::<Claims>(&base64encoded_segment, &DecodingKey::from_secret(key), &Validation::new(Algorithm::HS256)) {
+        Ok(c) => c,
+        Err(err) => {
+            info!("err {}", err);
+            panic!("Some other errors")
+        },
+    };
+    info!("decoded token data {:?}", token_data);
+
+    Ok(token_data.claims.sub)
 }
 
 async fn validate_credentials(

@@ -24,7 +24,9 @@ async fn create_event_works() {
 
     // Assert
     assert!(response.status().is_success());
-    assert_eq!(Some(0), response.content_length());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
 
     // Arrange - create an event for the user previously created
     let event = serde_json::json!({
@@ -36,7 +38,7 @@ async fn create_event_works() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/event", &address))
-        .basic_auth(username, Some(password))
+        .bearer_auth(jwt.token)
         .json(&event)
         .send()
         .await
@@ -69,7 +71,8 @@ async fn create_event_returns_400_when_fields_are_not_available() {
 
     // Assert
     assert!(response.status().is_success());
-    assert_eq!(Some(0), response.content_length());
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
 
     // Arrange - event without name
     let event = serde_json::json!({
@@ -181,7 +184,8 @@ async fn login_works_for_valid_credentials() {
 
     // Assert
     assert!(response.status().is_success());
-    assert_eq!(Some(0), response.content_length());
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
 
     // Arrange - login
     let user = serde_json::json!({
