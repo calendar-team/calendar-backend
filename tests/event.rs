@@ -1,5 +1,6 @@
 use calendar_backend::run;
 use std::net::TcpListener;
+use serde::Deserialize;
 
 #[tokio::test]
 async fn create_event_works() {
@@ -153,6 +154,11 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     assert_eq!(401, response.status().as_u16());
 }
 
+#[derive(Deserialize, Debug)]
+struct Jwt {
+    token: String,
+}
+
 #[tokio::test]
 async fn login_works_for_valid_credentials() {
     // Arrange - create the user
@@ -194,7 +200,9 @@ async fn login_works_for_valid_credentials() {
 
     // Assert
     assert!(response_event.status().is_success());
-    assert_eq!(Some(0), response_event.content_length());
+
+    let jwt: Jwt = response_event.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty()); 
 }
 
 // launch the server as a background task

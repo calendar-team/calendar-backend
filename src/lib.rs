@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+use std::time::{UNIX_EPOCH, SystemTime, Duration};
 use actix_cors::Cors;
 use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
@@ -34,6 +36,11 @@ struct Event {
 #[derive(Debug, Serialize, Deserialize)]
 struct Calendar {
     events: Vec<Event>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Jwt{
+    token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -251,8 +258,9 @@ async fn login(
     };
     validate_credentials(credentials, conn).await?;
 
-    generate_jwt(user.username.clone());
-    Ok(HttpResponse::Ok().finish())
+    let jwt = Jwt { token: generate_jwt(user.username.clone()) };
+
+    Ok(HttpResponse::Ok().json(jwt))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -261,12 +269,15 @@ struct Claims {
     exp: usize,
 }
 
-fn generate_jwt(username : String){
+fn generate_jwt(username : String) -> String{
     
     let key = b"secret";
+
+    const ONE_WEEK: Duration = Duration::new(7*24*60*60, 0);
+    let token_exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + ONE_WEEK;
     let my_claims = Claims {
-        sub: username,
-        exp: 10000000000,
+        sub: username.clone(),
+        exp: usize::try_from(token_exp.as_secs()).unwrap(),
     };
     let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(key)) {
         Ok(t) => t,
@@ -274,6 +285,19 @@ fn generate_jwt(username : String){
     };
 
     info!("token {}", token);
+
+    token
+
+    /*let mut validation = Validation::new(Algorithm::HS256);
+    validation.sub = Some(username);
+    let token_data = match decode::<Claims>(&token, &DecodingKey::from_secret(key), &validation) {
+        Ok(c) => c,
+        Err(err) => {
+            info!("err {}", err);
+            panic!("Some other errors")
+        },
+    };
+    info!("decoded token data {:?}", token_data);*/
 }
 
 fn load_rustls_config() -> ServerConfig {
