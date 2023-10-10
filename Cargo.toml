@@ -28,6 +28,6 @@ base64 = "0.21"
 secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
-regex = "1.9.6"
+regex = "1.10.0"
 argon2 = { version = "0.5.1", features = ["std"] }
 rand = "0.8.4"
