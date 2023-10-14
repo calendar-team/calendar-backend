@@ -10,7 +10,6 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use base64::Engine;
 use log::info;
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
@@ -164,7 +163,11 @@ async fn create_event(
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
+    info!("Received request to create new event");
+
     let username = basic_authentication(req.headers()).map_err(CustomError::AuthError)?;
+
+    info!("Authorized, creating new event");
 
     let result = conn.execute(
         "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
@@ -336,11 +339,13 @@ fn basic_authentication(headers: &HeaderMap) -> Result<String, anyhow::Error> {
         .context("The authorization scheme was not 'Bearer'.")?;
     let key = b"secret";
 
+    info!("Received token {}", base64encoded_segment);
+
     let token_data = match decode::<Claims>(&base64encoded_segment, &DecodingKey::from_secret(key), &Validation::new(Algorithm::HS256)) {
         Ok(c) => c,
         Err(err) => {
-            info!("err {}", err);
-            panic!("Some other errors")
+            info!("err {:?}", err);
+            return Err(anyhow::anyhow!("Invalid token: {}", err));
         },
     };
     info!("decoded token data {:?}", token_data);
