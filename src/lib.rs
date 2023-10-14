@@ -27,7 +27,6 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
-    username: String,
     name: String,
     // #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
     date_time: String,
@@ -198,7 +197,6 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
     let event_iter = stmt
         .query_map(&[username.as_str()], |row| {
             Ok(Event {
-                username: username.to_string(),
                 name: row.get(0)?,
                 date_time: row.get(1)?,
             })
