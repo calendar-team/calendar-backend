@@ -81,6 +81,11 @@ impl ResponseError for CustomError {
 }
 
 pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
+
+    if env::var("CALENDAR_IS_PROD_ENV").is_ok() && env::var("CALENDAR_JWT_SIGNING_KEY").is_err() {
+        panic!("Cannot start Calendar Backend in PROD ENV without JWT signing key");
+    }
+
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
     let conn = Connection::open_in_memory().unwrap();
 
@@ -168,7 +173,7 @@ async fn create_event(
     info!("Create new event");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
-    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let result = conn.execute(
         "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
@@ -265,15 +270,13 @@ async fn login(
 
 fn generate_jwt(username : String) -> Result<String, CustomError>{
     
-    let key = b"secret";
-
     const ONE_WEEK: Duration = Duration::new(7*24*60*60, 0);
     let token_exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + ONE_WEEK;
     let my_claims = Claims {
         sub: username.clone(),
         exp: usize::try_from(token_exp.as_secs()).unwrap(),
     };
-    let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(key)) {
+    let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(get_jwt_key().as_bytes())) {
         Ok(t) => t,
         Err(err) => return Err(CustomError::UnexpectedError(anyhow::anyhow!("Could not generate JWT {}", err)))
     };
@@ -326,9 +329,8 @@ fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
     let jwt = header_value
         .strip_prefix("Bearer ")
         .context("The authorization scheme was not 'Bearer'.")?;
-    let key = b"secret";
 
-    let token_data = match decode::<Claims>(&jwt, &DecodingKey::from_secret(key), &Validation::new(Algorithm::HS256)) {
+    let token_data = match decode::<Claims>(jwt, &DecodingKey::from_secret(get_jwt_key().as_bytes()), &Validation::new(Algorithm::HS256)) {
         Ok(c) => c,
         Err(err) => {
             error!("err {:?}", err);
@@ -381,4 +383,8 @@ fn hash(password: &String) -> String {
         .hash_password(password.as_bytes(), &salt)
         .unwrap()
         .to_string()
+}
+
+fn get_jwt_key() -> String {
+    env::var("CALENDAR_JWT_SIGNING_KEY").unwrap_or(String::from("secret"))
 }
