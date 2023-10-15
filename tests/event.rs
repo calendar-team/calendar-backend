@@ -2,6 +2,11 @@ use calendar_backend::run;
 use std::net::TcpListener;
 use serde::Deserialize;
 
+#[derive(Deserialize, Debug)]
+struct Jwt {
+    token: String,
+}
+
 #[tokio::test]
 async fn create_event_works() {
     // Arrange - create the user
@@ -83,7 +88,7 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/event", &address))
-        .basic_auth(username, Some(password))
+        .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
         .await
@@ -101,6 +106,7 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/event", &address))
+        .bearer_auth(jwt.token)
         .json(&event)
         .send()
         .await
@@ -147,7 +153,7 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/event", &address))
-        .basic_auth("username", Some("password"))
+        .bearer_auth("JWT_Random")
         .json(&event)
         .send()
         .await
@@ -155,11 +161,6 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
 
     // Assert
     assert_eq!(401, response.status().as_u16());
-}
-
-#[derive(Deserialize, Debug)]
-struct Jwt {
-    token: String,
 }
 
 #[tokio::test]

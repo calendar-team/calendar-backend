@@ -10,7 +10,7 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use log::info;
+use log::{error, info};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use rustls::{Certificate, PrivateKey, ServerConfig};
@@ -27,7 +27,6 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
     name: String,
-    // #[serde(with = "mongodb::bson::serde_helpers::bson_datetime_as_rfc3339_string")]
     date_time: String,
 }
 
@@ -63,6 +62,12 @@ pub enum CustomError {
     AuthError(#[source] anyhow::Error),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String,
+    exp: usize,
 }
 
 impl ResponseError for CustomError {
@@ -160,15 +165,11 @@ async fn create_event(
     event: web::Json<Event>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
+    info!("Create new event");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
-
-    info!("Received request to create new event");
-
-    let username = basic_authentication(req.headers()).map_err(CustomError::AuthError)?;
-
-    info!("Authorized, creating new event");
-
     let result = conn.execute(
         "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
         (&username, &event.name, &event.date_time),
@@ -187,9 +188,10 @@ async fn create_event(
     Ok(HttpResponse::Created().finish())
 }
 
-#[get("/calendar/{username}")]
-async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> HttpResponse {
-    info!("getting calendar for {}", username);
+#[get("/calendar")]
+async fn get_calendar(state: web::Data<State>, req: HttpRequest,) -> Result<HttpResponse, CustomError> {
+    info!("Get calendar");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -211,9 +213,7 @@ async fn get_calendar(username: web::Path<String>, state: web::Data<State>) -> H
         events.push(event.unwrap());
     }
 
-    let calendar = Calendar { events };
-
-    HttpResponse::Ok().json(calendar)
+    Ok(HttpResponse::Ok().json( Calendar { events }))
 }
 
 #[post("/user")]
@@ -221,11 +221,11 @@ async fn create_user(
     user: web::Json<User>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
+    info!("Create new user");
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
     let password_hash = hash(&user.password);
-
     let result = conn.execute(
         "INSERT INTO user (username, password_hash) VALUES (?1, ?2)",
         (&user.username, &password_hash),
@@ -242,9 +242,7 @@ async fn create_user(
         }
     }
 
-    let jwt = Jwt { token: generate_jwt(user.username.clone()) };
-
-    Ok(HttpResponse::Created().json(jwt))
+    Ok(HttpResponse::Created().json(Jwt { token: generate_jwt(user.username.clone())? }))
 }
 
 #[post("/login")]
@@ -252,6 +250,7 @@ async fn login(
     user: web::Json<User>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
+    info!("Login user");
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
@@ -261,18 +260,10 @@ async fn login(
     };
     validate_credentials(credentials, conn).await?;
 
-    let jwt = Jwt { token: generate_jwt(user.username.clone()) };
-
-    Ok(HttpResponse::Ok().json(jwt))
+    Ok(HttpResponse::Ok().json( Jwt { token: generate_jwt(user.username.clone())? }))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: String,
-    exp: usize,
-}
-
-fn generate_jwt(username : String) -> String{
+fn generate_jwt(username : String) -> Result<String, CustomError>{
     
     let key = b"secret";
 
@@ -284,12 +275,10 @@ fn generate_jwt(username : String) -> String{
     };
     let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(key)) {
         Ok(t) => t,
-        Err(_) => panic!(), // in practice you would return the error
+        Err(err) => return Err(CustomError::UnexpectedError(anyhow::anyhow!("Could not generate JWT {}", err)))
     };
 
-    info!("token {}", token);
-
-    token
+    Ok(token)
 }
 
 fn load_rustls_config() -> ServerConfig {
@@ -327,28 +316,25 @@ fn load_rustls_config() -> ServerConfig {
     config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
 }
 
-fn basic_authentication(headers: &HeaderMap) -> Result<String, anyhow::Error> {
-    // The header value, if present, must be a valid UTF8 string
+fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
+
     let header_value = headers
         .get("Authorization")
         .context("The 'Authorization' header was missing")?
         .to_str()
         .context("The 'Authorization' header was not a valid UTF8 string.")?;
-    let base64encoded_segment = header_value
+    let jwt = header_value
         .strip_prefix("Bearer ")
         .context("The authorization scheme was not 'Bearer'.")?;
     let key = b"secret";
 
-    info!("Received token {}", base64encoded_segment);
-
-    let token_data = match decode::<Claims>(&base64encoded_segment, &DecodingKey::from_secret(key), &Validation::new(Algorithm::HS256)) {
+    let token_data = match decode::<Claims>(&jwt, &DecodingKey::from_secret(key), &Validation::new(Algorithm::HS256)) {
         Ok(c) => c,
         Err(err) => {
-            info!("err {:?}", err);
+            error!("err {:?}", err);
             return Err(anyhow::anyhow!("Invalid token: {}", err));
         },
     };
-    info!("decoded token data {:?}", token_data);
 
     Ok(token_data.claims.sub)
 }
@@ -357,8 +343,6 @@ async fn validate_credentials(
     credentials: Credentials,
     conn: &Connection,
 ) -> Result<(), CustomError> {
-    info!("validating credentials for {}", credentials.username);
-
     let mut stmt = conn
         .prepare("SELECT password_hash FROM user WHERE username = ?1")
         .unwrap();
