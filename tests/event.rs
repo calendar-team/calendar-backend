@@ -197,7 +197,6 @@ async fn login_works_for_valid_credentials() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/login", &address))
-        .basic_auth(username, Some(password))
         .json(&user)
         .send()
         .await
