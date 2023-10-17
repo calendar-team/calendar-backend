@@ -1,6 +1,6 @@
 use calendar_backend::run;
-use std::net::TcpListener;
 use serde::Deserialize;
+use std::net::TcpListener;
 
 #[derive(Deserialize, Debug)]
 struct Jwt {
@@ -206,7 +206,7 @@ async fn login_works_for_valid_credentials() {
     assert!(response_event.status().is_success());
 
     let jwt: Jwt = response_event.json::<Jwt>().await.unwrap();
-    assert!(!jwt.token.is_empty()); 
+    assert!(!jwt.token.is_empty());
 }
 
 // launch the server as a background task

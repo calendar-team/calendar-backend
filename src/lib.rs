@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-use std::time::{UNIX_EPOCH, SystemTime, Duration};
 use actix_cors::Cors;
 use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
@@ -10,6 +8,7 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
@@ -17,12 +16,13 @@ use rustls::{Certificate, PrivateKey, ServerConfig};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::BufReader};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -36,7 +36,7 @@ struct Calendar {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Jwt{
+struct Jwt {
     token: String,
 }
 
@@ -81,7 +81,6 @@ impl ResponseError for CustomError {
 }
 
 pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
-
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() && env::var("CALENDAR_JWT_SIGNING_KEY").is_err() {
         panic!("Cannot start Calendar Backend in PROD ENV without JWT signing key");
     }
@@ -194,7 +193,10 @@ async fn create_event(
 }
 
 #[get("/calendar")]
-async fn get_calendar(state: web::Data<State>, req: HttpRequest,) -> Result<HttpResponse, CustomError> {
+async fn get_calendar(
+    state: web::Data<State>,
+    req: HttpRequest,
+) -> Result<HttpResponse, CustomError> {
     info!("Get calendar");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
@@ -218,7 +220,7 @@ async fn get_calendar(state: web::Data<State>, req: HttpRequest,) -> Result<Http
         events.push(event.unwrap());
     }
 
-    Ok(HttpResponse::Ok().json( Calendar { events }))
+    Ok(HttpResponse::Ok().json(Calendar { events }))
 }
 
 #[post("/user")]
@@ -247,7 +249,9 @@ async fn create_user(
         }
     }
 
-    Ok(HttpResponse::Created().json(Jwt { token: generate_jwt(user.username.clone())? }))
+    Ok(HttpResponse::Created().json(Jwt {
+        token: generate_jwt(user.username.clone())?,
+    }))
 }
 
 #[post("/login")]
@@ -265,20 +269,30 @@ async fn login(
     };
     validate_credentials(credentials, conn).await?;
 
-    Ok(HttpResponse::Ok().json( Jwt { token: generate_jwt(user.username.clone())? }))
+    Ok(HttpResponse::Ok().json(Jwt {
+        token: generate_jwt(user.username.clone())?,
+    }))
 }
 
-fn generate_jwt(username : String) -> Result<String, CustomError>{
-    
-    const ONE_WEEK: Duration = Duration::new(7*24*60*60, 0);
+fn generate_jwt(username: String) -> Result<String, CustomError> {
+    const ONE_WEEK: Duration = Duration::new(7 * 24 * 60 * 60, 0);
     let token_exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + ONE_WEEK;
     let my_claims = Claims {
         sub: username.clone(),
         exp: usize::try_from(token_exp.as_secs()).unwrap(),
     };
-    let token = match encode(&Header::default(), &my_claims, &EncodingKey::from_secret(get_jwt_key().as_bytes())) {
+    let token = match encode(
+        &Header::default(),
+        &my_claims,
+        &EncodingKey::from_secret(get_jwt_key().as_bytes()),
+    ) {
         Ok(t) => t,
-        Err(err) => return Err(CustomError::UnexpectedError(anyhow::anyhow!("Could not generate JWT {}", err)))
+        Err(err) => {
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Could not generate JWT {}",
+                err
+            )))
+        }
     };
 
     Ok(token)
@@ -320,7 +334,6 @@ fn load_rustls_config() -> ServerConfig {
 }
 
 fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
-
     let header_value = headers
         .get("Authorization")
         .context("The 'Authorization' header was missing")?
@@ -330,12 +343,16 @@ fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
         .strip_prefix("Bearer ")
         .context("The authorization scheme was not 'Bearer'.")?;
 
-    let token_data = match decode::<Claims>(jwt, &DecodingKey::from_secret(get_jwt_key().as_bytes()), &Validation::new(Algorithm::HS256)) {
+    let token_data = match decode::<Claims>(
+        jwt,
+        &DecodingKey::from_secret(get_jwt_key().as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    ) {
         Ok(c) => c,
         Err(err) => {
             error!("err {:?}", err);
             return Err(anyhow::anyhow!("Invalid token: {}", err));
-        },
+        }
     };
 
     Ok(token_data.claims.sub)
