@@ -86,9 +86,10 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
     }
 
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
-    let conn = Connection::open_in_memory().unwrap();
+    let db_path = "./database.db3";
+    let conn = Connection::open(db_path).unwrap();
 
-    conn.execute(
+    match conn.execute(
         "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
             username    TEXT NOT NULL,
@@ -96,9 +97,14 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
             date_time   TEXT NOT NULL
         )",
         (),
-    )
-    .unwrap();
-
+    ) {
+            Ok(updated) => {
+                info!("successfully created the 'event' table, result: {}", updated);
+            },
+            Err(err) => {
+                info!("error creating the 'event' table, result: {:?}", err);
+            }
+    }
     conn.execute(
         "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
