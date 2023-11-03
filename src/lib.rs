@@ -89,30 +89,34 @@ pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
     let db_path = "./database.db3";
     let conn = Connection::open(db_path).unwrap();
 
-    match conn.execute(
-        "CREATE TABLE event (
+    let result: Option<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='event'")
+        .unwrap()
+        .query_row([], |row| row.get(0))
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        conn.execute(
+            "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
             username    TEXT NOT NULL,
             name        TEXT NOT NULL,
             date_time   TEXT NOT NULL
         )",
-        (),
-    ) {
-            Ok(updated) => {
-                info!("successfully created the 'event' table, result: {}", updated);
-            },
-            Err(err) => {
-                info!("error creating the 'event' table, result: {:?}", err);
-            }
-    }
-    conn.execute(
-        "CREATE TABLE user (
+            (),
+        )
+        .unwrap();
+
+        conn.execute(
+            "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
             password_hash  TEXT NOT NULL
         )",
-        (),
-    )
-    .unwrap();
+            (),
+        )
+        .unwrap();
+    }
 
     let state = State {
         conn: Arc::new(Mutex::new(conn)),
