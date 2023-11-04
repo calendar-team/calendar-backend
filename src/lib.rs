@@ -80,14 +80,12 @@ impl ResponseError for CustomError {
     }
 }
 
-pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
+pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::io::Error> {
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() && env::var("CALENDAR_JWT_SIGNING_KEY").is_err() {
         panic!("Cannot start Calendar Backend in PROD ENV without JWT signing key");
     }
 
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
-    let db_path = "./database.db3";
-    let conn = Connection::open(db_path).unwrap();
 
     let result: Option<String> = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='event'")

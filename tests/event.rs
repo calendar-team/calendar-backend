@@ -1,4 +1,5 @@
 use calendar_backend::run;
+use rusqlite::Connection;
 use serde::Deserialize;
 use std::net::TcpListener;
 
@@ -216,7 +217,9 @@ fn spawn_app() -> String {
     // We retrieve the port assigned to us by the OS
     let port = listener.local_addr().unwrap().port();
 
-    let server = run(listener).expect("Failed to bind address");
+    let conn = Connection::open_in_memory().unwrap();
+
+    let server = run(listener, conn).expect("Failed to bind address");
     let _ = tokio::spawn(server);
 
     // We return the application address to the caller
