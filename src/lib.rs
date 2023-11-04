@@ -80,33 +80,41 @@ impl ResponseError for CustomError {
     }
 }
 
-pub fn run(tcp_listener: TcpListener) -> Result<Server, std::io::Error> {
+pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::io::Error> {
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() && env::var("CALENDAR_JWT_SIGNING_KEY").is_err() {
         panic!("Cannot start Calendar Backend in PROD ENV without JWT signing key");
     }
 
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
-    let conn = Connection::open_in_memory().unwrap();
 
-    conn.execute(
-        "CREATE TABLE event (
+    let result: Option<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='event'")
+        .unwrap()
+        .query_row([], |row| row.get(0))
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        conn.execute(
+            "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
             username    TEXT NOT NULL,
             name        TEXT NOT NULL,
             date_time   TEXT NOT NULL
         )",
-        (),
-    )
-    .unwrap();
+            (),
+        )
+        .unwrap();
 
-    conn.execute(
-        "CREATE TABLE user (
+        conn.execute(
+            "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
             password_hash  TEXT NOT NULL
         )",
-        (),
-    )
-    .unwrap();
+            (),
+        )
+        .unwrap();
+    }
 
     let state = State {
         conn: Arc::new(Mutex::new(conn)),
