@@ -1,1 +1,0 @@
-aws s3 cp database.db3 s3://calendar-db-backup/database.db3
