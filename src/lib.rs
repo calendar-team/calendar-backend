@@ -31,6 +31,11 @@ struct Event {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct Habit {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Calendar {
     events: Vec<Event>,
 }
@@ -107,6 +112,16 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         .unwrap();
 
         conn.execute(
+            "CREATE TABLE habit (
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            username    TEXT NOT NULL
+        )",
+            (),
+        )
+            .unwrap();
+
+        conn.execute(
             "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
             password_hash  TEXT NOT NULL
@@ -159,6 +174,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(create_event)
             .service(get_calendar)
             .service(create_user)
+            .service(create_habit)
             .service(login)
     });
 
@@ -203,7 +219,7 @@ async fn create_event(
 #[post("/habit")]
 async fn create_habit(
     req: HttpRequest,
-    event: web::Json<Event>,
+    habit: web::Json<Habit>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new habit");
@@ -212,17 +228,17 @@ async fn create_habit(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let result = conn.execute(
-        "INSERT INTO habit (username, name) VALUES (?1)",
-        (&username, &event.name, &event.date_time),
+        "INSERT INTO habit (username, name) VALUES (?1, ?2)",
+        (&username, &habit.name),
     );
     match result {
         Ok(_) => {
-            info!("inserted event");
+            info!("created habit");
         }
         Err(e) => {
-            info!("error inserting event: {}", e);
+            info!("error creating habit: {}", e);
             return Err(CustomError::UnexpectedError(anyhow::anyhow!(
-                "Error when saving the event"
+                "Error when creating the habit"
             )));
         }
     }
