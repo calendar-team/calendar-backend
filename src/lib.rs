@@ -200,6 +200,35 @@ async fn create_event(
     Ok(HttpResponse::Created().finish())
 }
 
+#[post("/habit")]
+async fn create_habit(
+    req: HttpRequest,
+    event: web::Json<Event>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Create new habit");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let result = conn.execute(
+        "INSERT INTO habit (username, name) VALUES (?1)",
+        (&username, &event.name, &event.date_time),
+    );
+    match result {
+        Ok(_) => {
+            info!("inserted event");
+        }
+        Err(e) => {
+            info!("error inserting event: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when saving the event"
+            )));
+        }
+    }
+    Ok(HttpResponse::Created().finish())
+}
+
 #[get("/calendar")]
 async fn get_calendar(
     state: web::Data<State>,
