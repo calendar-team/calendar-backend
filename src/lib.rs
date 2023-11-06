@@ -18,7 +18,7 @@ use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::env;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,7 +26,7 @@ use std::{fs::File, io::BufReader};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
-    name: String,
+    habit_id: i64,
     date_time: String,
 }
 
@@ -67,6 +67,8 @@ pub enum CustomError {
     AuthError(#[source] anyhow::Error),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
+    #[error("Not found")]
+    NotFound(#[source] anyhow::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,8 +81,8 @@ impl ResponseError for CustomError {
     fn status_code(&self) -> StatusCode {
         match self {
             CustomError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            // Return a 401 for auth errors
             CustomError::AuthError(_) => StatusCode::UNAUTHORIZED,
+            CustomError::NotFound(_) => StatusCode::NOT_FOUND,
         }
     }
 }
@@ -103,9 +105,8 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         conn.execute(
             "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
-            username    TEXT NOT NULL,
-            name        TEXT NOT NULL,
-            date_time   TEXT NOT NULL
+            habit_id    INTEGER FOREIGN KEY,
+            date_time   TEXT NOT NULL,
         )",
             (),
         )
@@ -197,11 +198,27 @@ async fn create_event(
     info!("Create new event");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
+
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+
+
+    let result: Option<String> = conn
+        .prepare("SELECT name FROM habit WHERE username='?1' AND habit_id='?2'")
+        .unwrap()
+        .query_row([username, event.habit_id], |row| row.get(0))
+        .optional()
+        .unwrap();
+
+    if(result.is_none()){
+        return Err(CustomError::NotFound(anyhow::anyhow!(
+                "Habit not found"
+            )));
+    }
+
     let result = conn.execute(
-        "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
-        (&username, &event.name, &event.date_time),
+        "INSERT INTO event (habit_id, date_time) VALUES (?1, ?2)",
+        (&event.habit_id, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -276,12 +293,13 @@ async fn get_habit(
     Ok(HttpResponse::Ok().json(habits))
 }
 
-#[get("/calendar")]
+#[get("/calendar/{habit}")]
 async fn get_calendar(
+    habit: web::Path<String>,
     state: web::Data<State>,
     req: HttpRequest,
 ) -> Result<HttpResponse, CustomError> {
-    info!("Get calendar");
+    info!("Get calendar for {}", habit);
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
