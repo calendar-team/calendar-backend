@@ -175,6 +175,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(get_calendar)
             .service(create_user)
             .service(create_habit)
+            .service(get_habit)
             .service(login)
     });
 
@@ -243,6 +244,36 @@ async fn create_habit(
         }
     }
     Ok(HttpResponse::Created().finish())
+}
+
+#[get("/habit")]
+async fn get_habit(
+    req: HttpRequest,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Get habits");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let mut stmt = conn
+        .prepare("SELECT name FROM habit WHERE username = ?1")
+        .unwrap();
+
+    let habit_iter = stmt
+        .query_map(&[username.as_str()], |row| {
+            Ok(Habit {
+                name: row.get(0)?,
+            })
+        })
+        .unwrap();
+
+    let mut habits = Vec::new();
+    for habit in habit_iter {
+        habits.push(habit.unwrap());
+    }
+
+    Ok(HttpResponse::Ok().json(habits))
 }
 
 #[get("/calendar")]
