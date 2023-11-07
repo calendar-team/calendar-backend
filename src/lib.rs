@@ -104,32 +104,32 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
     if result.is_none() {
         conn.execute(
             "CREATE TABLE event (
-id          INTEGER PRIMARY KEY,
-habit_id    INTEGER NOT NULL,
-date_time   TEXT NOT NULL,
-FOREIGN KEY (habit_id) REFERENCES habit (id) 
-)",
+            id          INTEGER PRIMARY KEY,
+            habit_id    INTEGER NOT NULL,
+            date_time   TEXT NOT NULL,
+            FOREIGN KEY (habit_id) REFERENCES habit (id) 
+        )",
             (),
         )
         .unwrap();
 
         conn.execute(
             "CREATE TABLE habit (
-id          INTEGER PRIMARY KEY,
-name        TEXT NOT NULL,
-username    TEXT NOT NULL,
-UNIQUE(username, name),
-FOREIGN KEY (username) REFERENCES user (username) 
-)",
+            id          INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            username    TEXT NOT NULL,
+            UNIQUE(username, name),
+            FOREIGN KEY (username) REFERENCES user (username) 
+        )",
             (),
         )
         .unwrap();
 
         conn.execute(
             "CREATE TABLE user (
-username       TEXT PRIMARY KEY,
-password_hash  TEXT NOT NULL
-)",
+            username       TEXT PRIMARY KEY,
+            password_hash  TEXT NOT NULL
+        )",
             (),
         )
         .unwrap();
