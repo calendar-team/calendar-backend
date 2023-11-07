@@ -34,10 +34,24 @@ async fn create_event_works() {
     let jwt: Jwt = response.json::<Jwt>().await.unwrap();
     assert!(!jwt.token.is_empty());
 
-    // Arrange - create an event for the user previously created
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "daily math practice"});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "username": "djacota",
-        "name": "write_integration_tests",
+        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 
@@ -123,8 +137,7 @@ async fn event_requests_missing_authorization_are_rejected() {
     let address = spawn_app();
 
     let event = serde_json::json!({
-        "username": "djacota",
-        "name": "implement_basic_authentication",
+        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 
@@ -146,8 +159,7 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     let address = spawn_app();
 
     let event = serde_json::json!({
-        "username": "djacota",
-        "name": "implement_basic_authentication",
+        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 

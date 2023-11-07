@@ -18,7 +18,7 @@ use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::env;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -205,9 +205,11 @@ async fn create_event(
     let conn = &mut *stmt_result;
 
     let result: Option<i64> = conn
-        .prepare("SELECT id FROM habit WHERE username='?1' AND name='?2'")
-        .unwrap()
-        .query_row([username, event.habit.clone()], |row| row.get(0))
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), event.habit.clone()),
+            |row| row.get(0),
+        )
         .optional()
         .unwrap();
 
@@ -287,10 +289,11 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
 
 #[get("/calendar/{habit}")]
 async fn get_calendar(
-    habit: web::Path<String>,
+    path: web::Path<String>,
     state: web::Data<State>,
     req: HttpRequest,
 ) -> Result<HttpResponse, CustomError> {
+    let habit = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
     info!("Get calendar for habit = {} and user = {}", habit, username);
 
@@ -298,9 +301,11 @@ async fn get_calendar(
     let conn = &mut *stmt_result;
 
     let result: Option<i64> = conn
-        .prepare("SELECT id FROM habit WHERE username='?1' AND name='?2'")
-        .unwrap()
-        .query_row([&username, &habit], |row| row.get(0))
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), habit.clone()),
+            |row| row.get(0),
+        )
         .optional()
         .unwrap();
 
@@ -309,13 +314,13 @@ async fn get_calendar(
     }
 
     let mut stmt = conn
-        .prepare("SELECT date_time FROM event WHERE username = ?1 AND habit_id = ?2")
+        .prepare("SELECT date_time FROM event WHERE habit_id = ?1")
         .unwrap();
 
     let event_iter = stmt
-        .query_map([&username, &result.unwrap().to_string()], |row| {
+        .query_map([result.unwrap()], |row| {
             Ok(Event {
-                habit: habit.to_string(),
+                habit: habit.clone(),
                 date_time: row.get(0)?,
             })
         })
