@@ -26,8 +26,13 @@ use std::{fs::File, io::BufReader};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
-    name: String,
+    habit: String,
     date_time: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Habit {
+    name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,6 +67,8 @@ pub enum CustomError {
     AuthError(#[source] anyhow::Error),
     #[error(transparent)]
     UnexpectedError(#[from] anyhow::Error),
+    #[error("Not found")]
+    NotFound(#[source] anyhow::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,8 +81,8 @@ impl ResponseError for CustomError {
     fn status_code(&self) -> StatusCode {
         match self {
             CustomError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            // Return a 401 for auth errors
             CustomError::AuthError(_) => StatusCode::UNAUTHORIZED,
+            CustomError::NotFound(_) => StatusCode::NOT_FOUND,
         }
     }
 }
@@ -88,7 +95,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
     let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
 
     let result: Option<String> = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='event'")
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
         .unwrap()
         .query_row([], |row| row.get(0))
         .optional()
@@ -98,9 +105,21 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         conn.execute(
             "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
-            username    TEXT NOT NULL,
+            habit_id    INTEGER NOT NULL,
+            date_time   TEXT NOT NULL,
+            FOREIGN KEY (habit_id) REFERENCES habit (id) 
+        )",
+            (),
+        )
+        .unwrap();
+
+        conn.execute(
+            "CREATE TABLE habit (
+            id          INTEGER PRIMARY KEY,
             name        TEXT NOT NULL,
-            date_time   TEXT NOT NULL
+            username    TEXT NOT NULL,
+            UNIQUE(username, name),
+            FOREIGN KEY (username) REFERENCES user (username) 
         )",
             (),
         )
@@ -159,6 +178,8 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(create_event)
             .service(get_calendar)
             .service(create_user)
+            .service(create_habit)
+            .service(get_habit)
             .service(login)
     });
 
@@ -182,9 +203,23 @@ async fn create_event(
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+
+    let result: Option<i64> = conn
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), event.habit.clone()),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
     let result = conn.execute(
-        "INSERT INTO event (username, name, date_time) VALUES (?1, ?2, ?3)",
-        (&username, &event.name, &event.date_time),
+        "INSERT INTO event (habit_id, date_time) VALUES (?1, ?2)",
+        (result, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -200,25 +235,93 @@ async fn create_event(
     Ok(HttpResponse::Created().finish())
 }
 
-#[get("/calendar")]
+#[post("/habit")]
+async fn create_habit(
+    req: HttpRequest,
+    habit: web::Json<Habit>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Create new habit");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let result = conn.execute(
+        "INSERT INTO habit (username, name) VALUES (?1, ?2)",
+        (&username, &habit.name),
+    );
+    match result {
+        Ok(_) => {
+            info!("created habit");
+        }
+        Err(e) => {
+            info!("error creating habit: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when creating the habit"
+            )));
+        }
+    }
+    Ok(HttpResponse::Created().finish())
+}
+
+#[get("/habit")]
+async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResponse, CustomError> {
+    info!("Get habits");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let mut stmt = conn
+        .prepare("SELECT name FROM habit WHERE username = ?1")
+        .unwrap();
+
+    let habit_iter = stmt
+        .query_map([username.as_str()], |row| Ok(Habit { name: row.get(0)? }))
+        .unwrap();
+
+    let mut habits = Vec::new();
+    for habit in habit_iter {
+        habits.push(habit.unwrap());
+    }
+
+    Ok(HttpResponse::Ok().json(habits))
+}
+
+#[get("/calendar/{habit}")]
 async fn get_calendar(
+    path: web::Path<String>,
     state: web::Data<State>,
     req: HttpRequest,
 ) -> Result<HttpResponse, CustomError> {
-    info!("Get calendar");
+    let habit = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    info!("Get calendar for habit = {} and user = {}", habit, username);
 
-    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+
+    let result: Option<i64> = conn
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), habit.clone()),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
     let mut stmt = conn
-        .prepare("SELECT name, date_time FROM event WHERE username = ?1")
+        .prepare("SELECT date_time FROM event WHERE habit_id = ?1")
         .unwrap();
 
     let event_iter = stmt
-        .query_map(&[username.as_str()], |row| {
+        .query_map([result.unwrap()], |row| {
             Ok(Event {
-                name: row.get(0)?,
-                date_time: row.get(1)?,
+                habit: habit.clone(),
+                date_time: row.get(0)?,
             })
         })
         .unwrap();
