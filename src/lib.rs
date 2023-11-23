@@ -278,7 +278,7 @@ async fn delete_event(
             )));
         }
     }
-    Ok(HttpResponse::Created().finish())
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[post("/habit")]
