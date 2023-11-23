@@ -3,7 +3,8 @@ use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
 use actix_web::http::StatusCode;
 use actix_web::{
-    get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer, ResponseError,
+    delete, get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer,
+    ResponseError,
 };
 use anyhow::Context;
 use argon2::password_hash::SaltString;
@@ -107,7 +108,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             id          INTEGER PRIMARY KEY,
             habit_id    INTEGER NOT NULL,
             date_time   TEXT NOT NULL,
-            FOREIGN KEY (habit_id) REFERENCES habit (id) 
+            FOREIGN KEY (habit_id) REFERENCES habit (id) ON DELETE CASCADE ON UPDATE CASCADE
         )",
             (),
         )
@@ -119,7 +120,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             name        TEXT NOT NULL,
             username    TEXT NOT NULL,
             UNIQUE(username, name),
-            FOREIGN KEY (username) REFERENCES user (username) 
+            FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
         )",
             (),
         )
@@ -159,7 +160,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
                     }
                 }
             })
-            .allowed_methods(vec!["GET", "POST"])
+            .allowed_methods(vec!["GET", "POST", "DELETE"])
             .allowed_headers(vec![
                 header::AUTHORIZATION,
                 header::ACCEPT,
@@ -179,6 +180,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(get_calendar)
             .service(create_user)
             .service(create_habit)
+            .service(delete_habit)
             .service(get_habit)
             .service(login)
     });
@@ -262,6 +264,77 @@ async fn create_habit(
         }
     }
     Ok(HttpResponse::Created().finish())
+}
+
+#[delete("/habit")]
+async fn delete_habit(
+    req: HttpRequest,
+    habit: web::Json<Habit>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Delete habit");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let tx = conn.transaction().unwrap();
+
+    let result: Option<i64> = tx
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), habit.name.clone()),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [result.unwrap()]);
+    match result {
+        Ok(_) => {
+            info!("deleted habit events");
+        }
+        Err(e) => {
+            info!("error deleting habit events: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when deleting the habit events"
+            )));
+        }
+    }
+
+    let result = tx.execute(
+        "DELETE FROM habit WHERE username=?1 AND name=?2",
+        (&username, &habit.name),
+    );
+    match result {
+        Ok(_) => {
+            info!("deleted habit");
+        }
+        Err(e) => {
+            info!("error deleting habit: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when deleting the habit"
+            )));
+        }
+    }
+    let result = tx.commit();
+
+    match result {
+        Ok(_) => {
+            info!("successfully commited the transaction");
+        }
+        Err(e) => {
+            error!("error commiting the transaction: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when commiting delete habit transaction"
+            )));
+        }
+    }
+
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[get("/habit")]
