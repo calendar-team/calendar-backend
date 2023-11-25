@@ -279,7 +279,7 @@ async fn delete_habit(
     let conn = &mut *stmt_result;
     let tx = conn.transaction().unwrap();
 
-    let result: Option<i64> = tx
+    let habit_id: Option<i64> = tx
         .query_row_and_then(
             "SELECT id FROM habit WHERE username=?1 AND name=?2",
             (username.clone(), habit.name.clone()),
@@ -288,11 +288,11 @@ async fn delete_habit(
         .optional()
         .unwrap();
 
-    if result.is_none() {
+    if habit_id.is_none() {
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [result.unwrap()]);
+    let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [habit_id.unwrap()]);
     match result {
         Ok(_) => {
             info!("deleted habit events");
