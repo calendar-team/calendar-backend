@@ -177,6 +177,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .wrap(Logger::default())
             .wrap(cors)
             .service(create_event)
+            .service(delete_event)
             .service(get_calendar)
             .service(create_user)
             .service(create_habit)
@@ -235,6 +236,49 @@ async fn create_event(
         }
     }
     Ok(HttpResponse::Created().finish())
+}
+
+#[delete("/event")]
+async fn delete_event(
+    req: HttpRequest,
+    event: web::Json<Event>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Delete event");
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let result: Option<i64> = conn
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), event.habit.clone()),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let result = conn.execute(
+        "DELETE FROM event WHERE id = (SELECT id FROM event WHERE habit_id=?1 AND date_time=?2 LIMIT 1)",
+        (result, &event.date_time),
+    );
+    match result {
+        Ok(_) => {
+            info!("deleted event");
+        }
+        Err(e) => {
+            info!("error deleting event: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when deleting the event"
+            )));
+        }
+    }
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[post("/habit")]
