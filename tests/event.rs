@@ -1,26 +1,26 @@
+use actix_web::http::StatusCode;
 use calendar_backend::run;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
-use actix_web::http::StatusCode;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Jwt {
     token: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Event {
     habit: String,
     date_time: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Calendar {
     events: Vec<Event>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Habit {
     name: String,
 }
@@ -399,7 +399,6 @@ async fn delete_habit_works() {
     // Assert
     assert!(response.status().is_success());
 
-
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
         "habit": "daily stretch",
@@ -462,7 +461,6 @@ async fn delete_habit_works() {
     // Assert
     assert_eq!(StatusCode::NOT_FOUND, response_events.status());
 }
-
 
 // launch the server as a background task
 fn spawn_app() -> String {
