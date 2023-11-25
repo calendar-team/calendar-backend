@@ -1,7 +1,7 @@
 use actix_web::http::StatusCode;
 use calendar_backend::run;
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::net::TcpListener;
 
 #[derive(Deserialize)]
@@ -9,7 +9,7 @@ struct Jwt {
     token: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 struct Event {
     habit: String,
     date_time: String,
@@ -312,9 +312,9 @@ async fn delete_event_works() {
     let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
     assert_eq!(1, calendar.events.len());
 
-    let event = &calendar.events[0];
-    assert_eq!("daily stretch", event.habit);
-    assert_eq!("11-25-2023", event.date_time);
+    let response_event = &calendar.events[0];
+    assert_eq!("daily stretch", response_event.habit);
+    assert_eq!("11-25-2023", response_event.date_time);
 
     // Act - delete event
     let response_event = reqwest::Client::new()
