@@ -384,7 +384,7 @@ async fn delete_habit_works() {
     // Assert
     assert!(response.status().is_success());
 
-    // Arrange - create another the habit
+    // Arrange - create another habit
     let habit = serde_json::json!({"name": "daily coffee"});
 
     // Act
