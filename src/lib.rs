@@ -503,7 +503,7 @@ async fn login(
 }
 
 fn generate_jwt(username: String) -> Result<String, CustomError> {
-    const ONE_MONTH : Duration = Duration::new(60 * 60 * 24 * 31, 0);
+    const ONE_MONTH: Duration = Duration::new(60 * 60 * 24 * 31, 0);
     let token_exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + ONE_MONTH;
     let my_claims = Claims {
         sub: username.clone(),
