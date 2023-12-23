@@ -31,10 +31,12 @@ async fn create_event_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -92,10 +94,12 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act

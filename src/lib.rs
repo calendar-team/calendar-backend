@@ -58,6 +58,7 @@ struct Jwt {
 struct User {
     username: String,
     password: String,
+    time_zone: String,
 }
 
 #[derive(Clone)]
@@ -137,7 +138,8 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         conn.execute(
             "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
-            password_hash  TEXT NOT NULL
+            password_hash  TEXT NOT NULL,
+            time_zone       TEXT NOT NULL
         )",
             (),
         )
@@ -513,8 +515,8 @@ async fn create_user(
 
     let password_hash = hash(&user.password);
     let result = conn.execute(
-        "INSERT INTO user (username, password_hash) VALUES (?1, ?2)",
-        (&user.username, &password_hash),
+        "INSERT INTO user (username, password_hash, time_zone) VALUES (?1, ?2, ?3)",
+        (&user.username, &password_hash, &user.time_zone),
     );
     match result {
         Ok(_) => {
