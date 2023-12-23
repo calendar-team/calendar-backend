@@ -22,7 +22,7 @@ use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
 use std::{fs::File, io::BufReader};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,8 +32,16 @@ struct Event {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+enum HabitState {
+    Pending,
+    Done,
+    None,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Habit {
     name: String,
+    state: HabitState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -427,11 +435,16 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
+        //.prepare("SELECT h.name, max(e.date_time) FROM habit h LEFT JOIN event e ON h.id = e.habit_id WHERE h.username = ?1 GROUP BY h.id")
         .prepare("SELECT name FROM habit WHERE username = ?1")
         .unwrap();
 
+    let now = Instant::now();
+
     let habit_iter = stmt
-        .query_map([username.as_str()], |row| Ok(Habit { name: row.get(0)? }))
+        .query_map([username.as_str()], |row| { 
+            return Ok(Habit { name: row.get(0)?, state: HabitState::Pending }); 
+        })
         .unwrap();
 
     let mut habits = Vec::new();
