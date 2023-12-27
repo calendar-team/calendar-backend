@@ -3,7 +3,7 @@ use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
 use actix_web::http::StatusCode;
 use actix_web::{
-    put, delete, get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer,
+    delete, get, middleware::Logger, post, put, web, App, HttpRequest, HttpResponse, HttpServer,
     ResponseError,
 };
 use anyhow::Context;
