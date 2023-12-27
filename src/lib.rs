@@ -3,7 +3,7 @@ use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
 use actix_web::http::StatusCode;
 use actix_web::{
-    delete, get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer,
+    put, delete, get, middleware::Logger, post, web, App, HttpRequest, HttpResponse, HttpServer,
     ResponseError,
 };
 use anyhow::Context;
@@ -160,7 +160,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
                     }
                 }
             })
-            .allowed_methods(vec!["GET", "POST", "DELETE"])
+            .allowed_methods(vec!["GET", "POST", "DELETE", "PUT"])
             .allowed_headers(vec![
                 header::AUTHORIZATION,
                 header::ACCEPT,
@@ -182,6 +182,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(create_user)
             .service(create_habit)
             .service(delete_habit)
+            .service(edit_habit)
             .service(get_habit)
             .service(login)
     });
@@ -374,6 +375,52 @@ async fn delete_habit(
             error!("error commiting the transaction: {}", e);
             return Err(CustomError::UnexpectedError(anyhow::anyhow!(
                 "Error when commiting delete habit transaction"
+            )));
+        }
+    }
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+#[put("/habit/{habit}")]
+async fn edit_habit(
+    req: HttpRequest,
+    new_name: web::Json<Habit>,
+    path: web::Path<String>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Edit habit");
+    let habit = path.into_inner();
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let habit_id: Option<i64> = conn
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), habit.clone()),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if habit_id.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let result = conn.execute(
+        "UPDATE habit SET name=?1 WHERE username=?2 AND name=?3",
+        (&new_name.name, &username, &habit),
+    );
+    match result {
+        Ok(_) => {
+            info!("edited habit");
+        }
+        Err(e) => {
+            info!("error editing habit: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when editing the habit"
             )));
         }
     }
