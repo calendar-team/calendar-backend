@@ -396,19 +396,6 @@ async fn edit_habit(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let habit_id: Option<i64> = conn
-        .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), habit.clone()),
-            |row| row.get(0),
-        )
-        .optional()
-        .unwrap();
-
-    if habit_id.is_none() {
-        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
-    }
-
     let result = conn.execute(
         "UPDATE habit SET name=?1 WHERE username=?2 AND name=?3",
         (&new_name.name, &username, &habit),
