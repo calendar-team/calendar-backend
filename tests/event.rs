@@ -462,6 +462,219 @@ async fn delete_habit_works() {
     assert_eq!(StatusCode::NOT_FOUND, response_events.status());
 }
 
+#[tokio::test]
+async fn edit_habit_works() {
+    // Arrange - create the user
+    let address = spawn_app();
+    let username = "djacota";
+    let password = "password";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to create a new user.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
+
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "daily stretch"});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    // Arrange - create an event for the previously created user and habit
+    let event = serde_json::json!({
+        "habit": "daily stretch",
+        "date_time": "11-25-2023"
+    });
+
+    // Act
+    let response_event = reqwest::Client::new()
+        .post(&format!("{}/event", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&event)
+        .send()
+        .await
+        .expect("Failed to create a new event.");
+
+    // Assert
+    assert!(response_event.status().is_success());
+    assert_eq!(Some(0), response_event.content_length());
+
+    // Arrange - prepare habit to be edited
+    let habit = serde_json::json!({
+        "name": "daily yoga",
+    });
+
+    // Act - edit habit
+    let response_habit = reqwest::Client::new()
+        .put(&format!("{}/habit/daily stretch", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to edit habit.");
+
+    // Assert
+    assert!(response_habit.status().is_success());
+    assert_eq!(Some(0), response_habit.content_length());
+
+    // Act - get all the events
+    let response_events = reqwest::Client::new()
+        .get(&format!("{}/calendar/daily stretch", &address))
+        .bearer_auth(jwt.token.clone())
+        .send()
+        .await
+        .expect("Failed the get all the events.");
+
+    // Assert
+    assert_eq!(StatusCode::NOT_FOUND, response_events.status());
+
+    // Act - get all the events for the updated habit
+    let response_events = reqwest::Client::new()
+        .get(&format!("{}/calendar/daily yoga", &address))
+        .bearer_auth(jwt.token.clone())
+        .send()
+        .await
+        .expect("Failed the get all the events.");
+    // Assert
+    assert!(response_events.status().is_success());
+    let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
+    assert_eq!(1, calendar.events.len());
+    let response_event = &calendar.events[0];
+    assert_eq!("daily yoga", response_event.habit);
+    assert_eq!("11-25-2023", response_event.date_time);
+
+    // Act - get all the habits
+    let response_habits = reqwest::Client::new()
+        .get(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_habits.status().is_success());
+    let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
+    assert_eq!(1, habits.len());
+    assert_eq!("daily yoga", habits[0].name);
+}
+
+#[tokio::test]
+async fn edit_habit_requests_missing_authorization_are_rejected() {
+    // Arrange - create the user
+    let address = spawn_app();
+    let username = "djacota";
+    let password = "password";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to create a new user.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
+
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "daily stretch"});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    // Act - edit habit
+    let response_habit = reqwest::Client::new()
+        .put(&format!("{}/habit/daily stretch", &address))
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to edit habit.");
+
+    // Assert
+    assert_eq!(401, response_habit.status().as_u16());
+}
+
+#[tokio::test]
+async fn edit_non_existent_habit_rejected() {
+    // Arrange - create the user
+    let address = spawn_app();
+    let username = "djacota";
+    let password = "password";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to create a new user.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
+
+    let habit = serde_json::json!({"name": "daily yoga"});
+
+    // Act - edit habit
+    let response_habit = reqwest::Client::new()
+        .put(&format!("{}/habit/daily stretch", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to edit habit.");
+
+    // Assert
+    assert_eq!(404, response_habit.status().as_u16());
+}
+
 // launch the server as a background task
 fn spawn_app() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
