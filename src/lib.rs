@@ -401,7 +401,11 @@ async fn edit_habit(
         (&new_name.name, &username, &habit),
     );
     match result {
-        Ok(_) => {
+        Ok(updated) => {
+            if updated == 0 {
+                info!("error editing habit, habit not found");
+                return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+            }
             info!("edited habit");
         }
         Err(e) => {
