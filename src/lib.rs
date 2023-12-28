@@ -385,7 +385,7 @@ async fn delete_habit(
 #[put("/habit/{habit}")]
 async fn edit_habit(
     req: HttpRequest,
-    new_name: web::Json<Habit>,
+    new_habit: web::Json<Habit>,
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
@@ -398,7 +398,7 @@ async fn edit_habit(
 
     let result = conn.execute(
         "UPDATE habit SET name=?1 WHERE username=?2 AND name=?3",
-        (&new_name.name, &username, &habit),
+        (&new_habit.name, &username, &habit),
     );
     match result {
         Ok(updated) => {
