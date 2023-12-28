@@ -543,13 +543,42 @@ async fn edit_habit_works() {
     // Act - get all the events
     let response_events = reqwest::Client::new()
         .get(&format!("{}/calendar/daily stretch", &address))
-        .bearer_auth(jwt.token)
+        .bearer_auth(jwt.token.clone())
         .send()
         .await
         .expect("Failed the get all the events.");
 
     // Assert
     assert_eq!(StatusCode::NOT_FOUND, response_events.status());
+
+    // Act - get all the events for the updated habit
+    let response_events = reqwest::Client::new()
+        .get(&format!("{}/calendar/daily yoga", &address))
+        .bearer_auth(jwt.token.clone())
+        .send()
+        .await
+        .expect("Failed the get all the events.");
+    // Assert
+    assert!(response_events.status().is_success());
+    let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
+    assert_eq!(1, calendar.events.len());
+    let response_event = &calendar.events[0];
+    assert_eq!("daily yoga", response_event.habit);
+    assert_eq!("11-25-2023", response_event.date_time);
+
+    // Act - get all the habits
+    let response_habits = reqwest::Client::new()
+        .get(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_habits.status().is_success());
+    let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
+    assert_eq!(1, habits.len());
+    assert_eq!("daily yoga", habits[0].name);
 }
 
 #[tokio::test]
