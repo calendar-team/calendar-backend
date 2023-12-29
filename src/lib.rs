@@ -139,7 +139,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
             password_hash  TEXT NOT NULL,
-            time_zone       TEXT NOT NULL
+            time_zone      TEXT NOT NULL
         )",
             (),
         )
@@ -437,15 +437,20 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        //.prepare("SELECT h.name, max(e.date_time) FROM habit h LEFT JOIN event e ON h.id = e.habit_id WHERE h.username = ?1 GROUP BY h.id")
-        .prepare("SELECT name FROM habit WHERE username = ?1")
+        .prepare("SELECT h.name, max(e.date_time) FROM habit h LEFT JOIN event e ON h.id = e.habit_id WHERE h.username = ?1 GROUP BY h.id")
+        //.prepare("SELECT name FROM habit WHERE username = ?1")
         .unwrap();
+
+    // handle the case when no event was registred
 
     let now = Instant::now();
 
     let habit_iter = stmt
-        .query_map([username.as_str()], |row| { 
-            return Ok(Habit { name: row.get(0)?, state: HabitState::Pending }); 
+        .query_map([username.as_str()], |row| {
+            let habit_name: String = row.get(0)?;
+            let latest_event_date: String = row.get(1)?;
+            info!("{:?} - {:?}", habit_name, latest_event_date);
+            return Ok(Habit { name: habit_name, state: HabitState::Pending }); 
         })
         .unwrap();
 
