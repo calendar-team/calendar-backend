@@ -9,6 +9,8 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::{DateTime, Local, Utc};
+use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
@@ -22,10 +24,8 @@ use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::BufReader};
-use chrono::{DateTime, Local, Utc};
-use chrono_tz::Tz;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -439,34 +439,35 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT h.name, max(e.date_time) FROM habit h LEFT JOIN event e ON h.id = e.habit_id WHERE h.username = ?1 GROUP BY h.id")
-        //.prepare("SELECT name FROM habit WHERE username = ?1")
+        .prepare("SELECT h.name, max(e.date_time), u.time_zone 
+                  FROM habit h LEFT JOIN event e ON h.id = e.habit_id JOIN user u ON h.username = u.username 
+                  WHERE h.username = ?1 
+                  GROUP BY h.id")
         .unwrap();
-
-    // handle the case when no event was registred
 
     let habit_iter = stmt
         .query_map([username.as_str()], |row| {
-
             let habit_name: String = row.get(0)?;
             let state = match row.get::<usize, String>(1) {
                 Ok(latest_event_date) => {
-                    let tz: Tz = "Europe/Bucharest".parse().unwrap();
-
+                    let tz: Tz = row.get::<usize, String>(2)?.parse().unwrap();
                     let local_time = Local::now();
                     let user_time = local_time.with_timezone(&tz).date_naive();
 
                     let event_time = latest_event_date.parse::<DateTime<Utc>>().unwrap();
                     let event_time_in_user_time = event_time.with_timezone(&tz).date_naive();
-                    if user_time == event_time_in_user_time {HabitState::Done} else {HabitState::Pending}
+                    if user_time == event_time_in_user_time {
+                        HabitState::Done
+                    } else {
+                        HabitState::Pending
+                    }
                 }
-                Err(_) => {
-                    HabitState::Pending
-                }
+                Err(_) => HabitState::Pending,
             };
-
-            info!("{:?} - {:?}", habit_name, state);
-            return Ok(Habit { name: habit_name, state: state });
+            Ok(Habit {
+                name: habit_name,
+                state,
+            })
         })
         .unwrap();
 
