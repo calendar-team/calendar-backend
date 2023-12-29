@@ -24,6 +24,8 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH, Instant};
 use std::{fs::File, io::BufReader};
+use chrono::{DateTime, Local, Utc};
+use chrono_tz::Tz;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -443,14 +445,28 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
 
     // handle the case when no event was registred
 
-    let now = Instant::now();
-
     let habit_iter = stmt
         .query_map([username.as_str()], |row| {
+
             let habit_name: String = row.get(0)?;
-            let latest_event_date: String = row.get(1)?;
-            info!("{:?} - {:?}", habit_name, latest_event_date);
-            return Ok(Habit { name: habit_name, state: HabitState::Pending }); 
+            let state = match row.get::<usize, String>(1) {
+                Ok(latest_event_date) => {
+                    let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+                    let local_time = Local::now();
+                    let user_time = local_time.with_timezone(&tz).date_naive();
+
+                    let event_time = latest_event_date.parse::<DateTime<Utc>>().unwrap();
+                    let event_time_in_user_time = event_time.with_timezone(&tz).date_naive();
+                    if user_time == event_time_in_user_time {HabitState::Done} else {HabitState::Pending}
+                }
+                Err(_) => {
+                    HabitState::Pending
+                }
+            };
+
+            info!("{:?} - {:?}", habit_name, state);
+            return Ok(Habit { name: habit_name, state: state });
         })
         .unwrap();
 
