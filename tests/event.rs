@@ -23,6 +23,7 @@ struct Calendar {
 #[derive(Deserialize)]
 struct Habit {
     name: String,
+    state: String,
 }
 
 #[tokio::test]
@@ -203,10 +204,12 @@ async fn login_works_for_valid_credentials() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -249,10 +252,12 @@ async fn delete_event_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -353,10 +358,12 @@ async fn delete_habit_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -472,10 +479,12 @@ async fn edit_habit_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -510,7 +519,7 @@ async fn edit_habit_works() {
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
         "habit": "daily stretch",
-        "date_time": "11-25-2023"
+        "date_time": "2023-11-25T12:12:12.0000Z"
     });
 
     // Act
@@ -568,7 +577,7 @@ async fn edit_habit_works() {
     assert_eq!(1, calendar.events.len());
     let response_event = &calendar.events[0];
     assert_eq!("daily yoga", response_event.habit);
-    assert_eq!("11-25-2023", response_event.date_time);
+    assert_eq!("2023-11-25T12:12:12.0000Z", response_event.date_time);
 
     // Act - get all the habits
     let response_habits = reqwest::Client::new()
@@ -583,6 +592,7 @@ async fn edit_habit_works() {
     let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
     assert_eq!(1, habits.len());
     assert_eq!("daily yoga", habits[0].name);
+    assert_eq!("Pending", habits[0].state);
 }
 
 #[tokio::test]
@@ -591,10 +601,12 @@ async fn edit_habit_requests_missing_authorization_are_rejected() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -644,10 +656,12 @@ async fn edit_non_existent_habit_rejected() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act

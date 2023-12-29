@@ -41,9 +41,14 @@ enum HabitState {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Habit {
+struct ResponseHabit {
     name: String,
     state: HabitState,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InputHabit {
+    name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,10 +62,16 @@ struct Jwt {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct User {
+struct CreateUser {
     username: String,
     password: String,
     time_zone: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LoginUser {
+    username: String,
+    password: String,
 }
 
 #[derive(Clone)]
@@ -297,7 +308,7 @@ async fn delete_event(
 #[post("/habit")]
 async fn create_habit(
     req: HttpRequest,
-    habit: web::Json<Habit>,
+    habit: web::Json<InputHabit>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new habit");
@@ -326,7 +337,7 @@ async fn create_habit(
 #[delete("/habit")]
 async fn delete_habit(
     req: HttpRequest,
-    habit: web::Json<Habit>,
+    habit: web::Json<InputHabit>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete habit");
@@ -397,7 +408,7 @@ async fn delete_habit(
 #[put("/habit/{habit}")]
 async fn edit_habit(
     req: HttpRequest,
-    new_habit: web::Json<Habit>,
+    new_habit: web::Json<InputHabit>,
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
@@ -464,7 +475,7 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
                 }
                 Err(_) => HabitState::Pending,
             };
-            Ok(Habit {
+            Ok(ResponseHabit {
                 name: habit_name,
                 state,
             })
@@ -528,7 +539,7 @@ async fn get_calendar(
 
 #[post("/user")]
 async fn create_user(
-    user: web::Json<User>,
+    user: web::Json<CreateUser>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new user");
@@ -559,7 +570,7 @@ async fn create_user(
 
 #[post("/login")]
 async fn login(
-    user: web::Json<User>,
+    user: web::Json<LoginUser>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Login user");
