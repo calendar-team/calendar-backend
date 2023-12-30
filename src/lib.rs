@@ -9,6 +9,8 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::{DateTime, Local, Utc};
+use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
@@ -32,7 +34,20 @@ struct Event {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Habit {
+enum HabitState {
+    Pending,
+    Done,
+    None,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ResponseHabit {
+    name: String,
+    state: HabitState,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InputHabit {
     name: String,
 }
 
@@ -47,7 +62,14 @@ struct Jwt {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct User {
+struct CreateUser {
+    username: String,
+    password: String,
+    time_zone: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LoginUser {
     username: String,
     password: String,
 }
@@ -129,7 +151,8 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         conn.execute(
             "CREATE TABLE user (
             username       TEXT PRIMARY KEY,
-            password_hash  TEXT NOT NULL
+            password_hash  TEXT NOT NULL,
+            time_zone      TEXT NOT NULL
         )",
             (),
         )
@@ -285,7 +308,7 @@ async fn delete_event(
 #[post("/habit")]
 async fn create_habit(
     req: HttpRequest,
-    habit: web::Json<Habit>,
+    habit: web::Json<InputHabit>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new habit");
@@ -314,7 +337,7 @@ async fn create_habit(
 #[delete("/habit")]
 async fn delete_habit(
     req: HttpRequest,
-    habit: web::Json<Habit>,
+    habit: web::Json<InputHabit>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete habit");
@@ -385,7 +408,7 @@ async fn delete_habit(
 #[put("/habit/{habit}")]
 async fn edit_habit(
     req: HttpRequest,
-    new_habit: web::Json<Habit>,
+    new_habit: web::Json<InputHabit>,
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
@@ -427,11 +450,36 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT name FROM habit WHERE username = ?1")
+        .prepare("SELECT h.name, max(e.date_time), u.time_zone 
+                  FROM habit h LEFT JOIN event e ON h.id = e.habit_id JOIN user u ON h.username = u.username 
+                  WHERE h.username = ?1 
+                  GROUP BY h.id")
         .unwrap();
 
     let habit_iter = stmt
-        .query_map([username.as_str()], |row| Ok(Habit { name: row.get(0)? }))
+        .query_map([username.as_str()], |row| {
+            let habit_name: String = row.get(0)?;
+            let state = match row.get::<usize, String>(1) {
+                Ok(latest_event_date) => {
+                    let tz: Tz = row.get::<usize, String>(2)?.parse().unwrap();
+                    let local_time = Local::now();
+                    let user_time = local_time.with_timezone(&tz).date_naive();
+
+                    let event_time = latest_event_date.parse::<DateTime<Utc>>().unwrap();
+                    let event_time_in_user_time = event_time.with_timezone(&tz).date_naive();
+                    if user_time == event_time_in_user_time {
+                        HabitState::Done
+                    } else {
+                        HabitState::Pending
+                    }
+                }
+                Err(_) => HabitState::Pending,
+            };
+            Ok(ResponseHabit {
+                name: habit_name,
+                state,
+            })
+        })
         .unwrap();
 
     let mut habits = Vec::new();
@@ -491,7 +539,7 @@ async fn get_calendar(
 
 #[post("/user")]
 async fn create_user(
-    user: web::Json<User>,
+    user: web::Json<CreateUser>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new user");
@@ -500,8 +548,8 @@ async fn create_user(
 
     let password_hash = hash(&user.password);
     let result = conn.execute(
-        "INSERT INTO user (username, password_hash) VALUES (?1, ?2)",
-        (&user.username, &password_hash),
+        "INSERT INTO user (username, password_hash, time_zone) VALUES (?1, ?2, ?3)",
+        (&user.username, &password_hash, &user.time_zone),
     );
     match result {
         Ok(_) => {
@@ -522,7 +570,7 @@ async fn create_user(
 
 #[post("/login")]
 async fn login(
-    user: web::Json<User>,
+    user: web::Json<LoginUser>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Login user");

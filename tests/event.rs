@@ -1,5 +1,6 @@
 use actix_web::http::StatusCode;
 use calendar_backend::run;
+use chrono::Utc;
 use rusqlite::Connection;
 use serde::Deserialize;
 use std::net::TcpListener;
@@ -23,6 +24,7 @@ struct Calendar {
 #[derive(Deserialize)]
 struct Habit {
     name: String,
+    state: String,
 }
 
 #[tokio::test]
@@ -31,10 +33,12 @@ async fn create_event_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -92,10 +96,12 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -199,10 +205,12 @@ async fn login_works_for_valid_credentials() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -245,10 +253,12 @@ async fn delete_event_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -349,10 +359,12 @@ async fn delete_habit_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -468,10 +480,12 @@ async fn edit_habit_works() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -506,7 +520,7 @@ async fn edit_habit_works() {
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
         "habit": "daily stretch",
-        "date_time": "11-25-2023"
+        "date_time": "2023-11-25T12:12:12.0000Z"
     });
 
     // Act
@@ -564,7 +578,7 @@ async fn edit_habit_works() {
     assert_eq!(1, calendar.events.len());
     let response_event = &calendar.events[0];
     assert_eq!("daily yoga", response_event.habit);
-    assert_eq!("11-25-2023", response_event.date_time);
+    assert_eq!("2023-11-25T12:12:12.0000Z", response_event.date_time);
 
     // Act - get all the habits
     let response_habits = reqwest::Client::new()
@@ -579,6 +593,7 @@ async fn edit_habit_works() {
     let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
     assert_eq!(1, habits.len());
     assert_eq!("daily yoga", habits[0].name);
+    assert_eq!("Pending", habits[0].state);
 }
 
 #[tokio::test]
@@ -587,10 +602,12 @@ async fn edit_habit_requests_missing_authorization_are_rejected() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -640,10 +657,12 @@ async fn edit_non_existent_habit_rejected() {
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
+    let time_zone = "Europe/Bucharest";
 
     let user = serde_json::json!({
         "username": username,
         "password": password,
+        "time_zone": time_zone,
     });
 
     // Act
@@ -673,6 +692,113 @@ async fn edit_non_existent_habit_rejected() {
 
     // Assert
     assert_eq!(404, response_habit.status().as_u16());
+}
+
+#[tokio::test]
+async fn event_status_is_done_when_event_is_created_today() {
+    // Arrange - create the user
+    let address = spawn_app();
+    let username = "djacota";
+    let password = "password";
+    let time_zone = "Europe/Bucharest";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+        "time_zone": time_zone,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to create a new user.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
+
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "daily stretch"});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+    let utc_time = Utc::now();
+
+    // Arrange - create an event for the previously created user and habit
+    let event = serde_json::json!({
+        "habit": "daily stretch",
+        "date_time": utc_time.to_rfc3339(),
+    });
+
+    // Act
+    let response_event = reqwest::Client::new()
+        .post(&format!("{}/event", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&event)
+        .send()
+        .await
+        .expect("Failed to create a new event.");
+
+    // Assert
+    assert!(response_event.status().is_success());
+    assert_eq!(Some(0), response_event.content_length());
+
+    // Act - get all the habits
+    let response_habits = reqwest::Client::new()
+        .get(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token.clone())
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_habits.status().is_success());
+    let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
+    assert_eq!(1, habits.len());
+    assert_eq!("daily stretch", habits[0].name);
+    assert_eq!("Done", habits[0].state);
+
+    // Act - delete the today's event
+    let response_event = reqwest::Client::new()
+        .delete(&format!("{}/event", &address))
+        .bearer_auth(jwt.token.clone())
+        .json(&event)
+        .send()
+        .await
+        .expect("Failed to delete the event.");
+
+    // Assert
+    assert!(response_event.status().is_success());
+    assert_eq!(Some(0), response_event.content_length());
+
+    // Act - get all the habits
+    let response_habits = reqwest::Client::new()
+        .get(&format!("{}/habit", &address))
+        .bearer_auth(jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_habits.status().is_success());
+    let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
+    assert_eq!(1, habits.len());
+    assert_eq!("daily stretch", habits[0].name);
+    assert_eq!("Pending", habits[0].state);
 }
 
 // launch the server as a background task
