@@ -47,8 +47,15 @@ struct ResponseHabit {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct ResponseHabitDetails {
+    name: String,
+    description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct InputHabit {
     name: String,
+    description: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -140,6 +147,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             "CREATE TABLE habit (
             id          INTEGER PRIMARY KEY,
             name        TEXT NOT NULL,
+            description TEXT NOT NULL,
             username    TEXT NOT NULL,
             UNIQUE(username, name),
             FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
@@ -191,7 +199,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             ])
             .max_age(3600);
 
-        if !env::var("CALENDAR_IS_PROD_ENV").is_ok() {
+        if env::var("CALENDAR_IS_PROD_ENV").is_err() {
             cors = cors.allowed_origin("http://localhost:3000")
         }
 
@@ -207,6 +215,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .service(delete_habit)
             .service(edit_habit)
             .service(get_habit)
+            .service(get_habit_details)
             .service(login)
     });
 
@@ -317,8 +326,8 @@ async fn create_habit(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let result = conn.execute(
-        "INSERT INTO habit (username, name) VALUES (?1, ?2)",
-        (&username, &habit.name),
+        "INSERT INTO habit (username, name, description) VALUES (?1, ?2, ?3)",
+        (&username, &habit.name, &habit.description),
     );
     match result {
         Ok(_) => {
@@ -334,14 +343,15 @@ async fn create_habit(
     Ok(HttpResponse::Created().finish())
 }
 
-#[delete("/habit")]
+#[delete("/habit/{habit}")]
 async fn delete_habit(
     req: HttpRequest,
-    habit: web::Json<InputHabit>,
+    path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete habit");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let habit = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -350,7 +360,7 @@ async fn delete_habit(
     let habit_id: Option<i64> = tx
         .query_row_and_then(
             "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), habit.name.clone()),
+            (username.clone(), &habit),
             |row| row.get(0),
         )
         .optional()
@@ -375,7 +385,7 @@ async fn delete_habit(
 
     let result = tx.execute(
         "DELETE FROM habit WHERE username=?1 AND name=?2",
-        (&username, &habit.name),
+        (&username, &habit),
     );
     match result {
         Ok(_) => {
@@ -420,8 +430,8 @@ async fn edit_habit(
     let conn = &mut *stmt_result;
 
     let result = conn.execute(
-        "UPDATE habit SET name=?1 WHERE username=?2 AND name=?3",
-        (&new_habit.name, &username, &habit),
+        "UPDATE habit SET name=?1, description=?2 WHERE username=?3 AND name=?4",
+        (&new_habit.name, &new_habit.description, &username, &habit),
     );
     match result {
         Ok(updated) => {
@@ -490,6 +500,39 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     Ok(HttpResponse::Ok().json(habits))
 }
 
+#[get("/habit/{habit}")]
+async fn get_habit_details(
+    path: web::Path<String>,
+    req: HttpRequest,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Get habit details");
+    let habit = path.into_inner();
+    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let result: Option<(String, String)> = conn
+        .query_row_and_then(
+            "SELECT name, description FROM habit WHERE username=?1 AND name=?2",
+            (username.clone(), habit.clone()),
+            |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
+        )
+        .optional()
+        .unwrap();
+
+    if result.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let (habit_name, habit_description) = result.unwrap();
+
+    Ok(HttpResponse::Ok().json(ResponseHabitDetails {
+        name: habit_name,
+        description: habit_description,
+    }))
+}
+
 #[get("/calendar/{habit}")]
 async fn get_calendar(
     path: web::Path<String>,
@@ -543,7 +586,7 @@ async fn create_user(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new user");
-    let mut stmt_result = (&state).conn.lock().expect("failed to lock conn");
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
     let password_hash = hash(&user.password);
@@ -681,7 +724,7 @@ async fn validate_credentials(
         .unwrap();
 
     let password_hash: Option<String> = stmt
-        .query_row(&[credentials.username.as_str()], |row| row.get(0))
+        .query_row([credentials.username.as_str()], |row| row.get(0))
         .optional()
         .unwrap();
 
