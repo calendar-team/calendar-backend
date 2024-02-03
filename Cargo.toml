@@ -23,7 +23,7 @@ rustls = "0.21.9"
 rustls-pemfile = "1.0.4"
 actix-cors = "0.7.0"
 reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1.35.1", features = ["macros"] }
+tokio = { version = "1.36.0", features = ["macros"] }
 secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
