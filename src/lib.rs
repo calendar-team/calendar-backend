@@ -15,8 +15,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use log::{error, info};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls::ServerConfig;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -220,7 +219,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
     });
 
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() {
-        server = server.listen_rustls_0_21(tcp_listener, load_rustls_config())?;
+        server = server.listen_rustls_0_22(tcp_listener, load_rustls_config())?;
     } else {
         server = server.listen(tcp_listener)?;
     }
@@ -656,12 +655,6 @@ fn generate_jwt(username: String) -> Result<String, CustomError> {
 }
 
 fn load_rustls_config() -> ServerConfig {
-    // init server config builder with safe defaults
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth();
-
-    // load TLS key/cert files
     let cert_file = &mut BufReader::new(
         File::open("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/fullchain.pem").unwrap(),
     );
@@ -669,25 +662,15 @@ fn load_rustls_config() -> ServerConfig {
         File::open("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/privkey.pem").unwrap(),
     );
 
-    // convert files to key/cert objects
-    let cert_chain = certs(cert_file)
-        .unwrap()
-        .into_iter()
-        .map(Certificate)
-        .collect();
-    let mut keys: Vec<PrivateKey> = pkcs8_private_keys(key_file)
-        .unwrap()
-        .into_iter()
-        .map(PrivateKey)
-        .collect();
+    let certs = rustls_pemfile::certs(cert_file)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let private_key = rustls_pemfile::private_key(key_file).unwrap().unwrap();
 
-    // exit if no keys could be parsed
-    if keys.is_empty() {
-        eprintln!("Could not locate PKCS 8 private keys.");
-        std::process::exit(1);
-    }
-
-    config.with_single_cert(cert_chain, keys.remove(0)).unwrap()
+    rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, private_key)
+        .unwrap()
 }
 
 fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
