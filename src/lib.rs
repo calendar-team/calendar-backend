@@ -18,7 +18,6 @@ use rusqlite::{Connection, OptionalExtension};
 use rustls::ServerConfig;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
@@ -26,6 +25,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::BufReader};
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
@@ -333,7 +333,12 @@ async fn create_habit(
     let habit_id = Uuid::new_v4();
     let result = conn.execute(
         "INSERT INTO habit (id, username, name, description) VALUES (?1, ?2, ?3, ?4)",
-        (&habit_id.to_string(), &username, &habit.name, &habit.description),
+        (
+            &habit_id.to_string(),
+            &username,
+            &habit.name,
+            &habit.description,
+        ),
     );
     match result {
         Ok(_) => {
@@ -346,7 +351,11 @@ async fn create_habit(
             )));
         }
     }
-    Ok(HttpResponse::Ok().json(ResponseHabitDetails { id: habit_id.to_string(), name: habit.name.clone(), description: habit.description.clone(), }))
+    Ok(HttpResponse::Ok().json(ResponseHabitDetails {
+        id: habit_id.to_string(),
+        name: habit.name.clone(),
+        description: habit.description.clone(),
+    }))
 }
 
 #[delete("/habit/{habit_id}")]
@@ -389,10 +398,7 @@ async fn delete_habit(
         }
     }
 
-    let result = tx.execute(
-        "DELETE FROM habit WHERE id=?1",
-        [&habit_id],
-    );
+    let result = tx.execute("DELETE FROM habit WHERE id=?1", [&habit_id]);
     match result {
         Ok(_) => {
             info!("deleted habit");
@@ -437,7 +443,12 @@ async fn edit_habit(
 
     let result = conn.execute(
         "UPDATE habit SET name=?1, description=?2 WHERE username=?3 AND id=?4",
-        (&new_habit.name, &new_habit.description, &username, &habit_id),
+        (
+            &new_habit.name,
+            &new_habit.description,
+            &username,
+            &habit_id,
+        ),
     );
     match result {
         Ok(updated) => {
@@ -524,7 +535,13 @@ async fn get_habit_details(
         .query_row_and_then(
             "SELECT id, name, description FROM habit WHERE id=?1 AND username=?2",
             (&habit_id, &username),
-            |row| Ok((row.get(0).unwrap(), row.get(1).unwrap(), row.get(2).unwrap())),
+            |row| {
+                Ok((
+                    row.get(0).unwrap(),
+                    row.get(1).unwrap(),
+                    row.get(2).unwrap(),
+                ))
+            },
         )
         .optional()
         .unwrap();
@@ -550,7 +567,10 @@ async fn get_calendar(
 ) -> Result<HttpResponse, CustomError> {
     let habit_id = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
-    info!("Get events for habit = {} and user = {}", habit_id, username);
+    info!(
+        "Get events for habit = {} and user = {}",
+        habit_id, username
+    );
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
