@@ -33,3 +33,4 @@ rand = "0.8.4"
 jsonwebtoken = "9.2.0"
 chrono = "0.4.33"
 chrono-tz = "0.8.5"
+uuid = { version = "1.7.0", features = ["v4"] }

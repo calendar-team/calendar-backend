@@ -18,6 +18,7 @@ use rusqlite::{Connection, OptionalExtension};
 use rustls::ServerConfig;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
@@ -28,7 +29,6 @@ use std::{fs::File, io::BufReader};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Event {
-    habit: String,
     date_time: String,
 }
 
@@ -41,12 +41,14 @@ enum HabitState {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseHabit {
+    id: String,
     name: String,
     state: HabitState,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseHabitDetails {
+    id: String,
     name: String,
     description: String,
 }
@@ -144,7 +146,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
 
         conn.execute(
             "CREATE TABLE habit (
-            id          INTEGER PRIMARY KEY,
+            id          TEXT PRIMARY KEY,
             name        TEXT NOT NULL,
             description TEXT NOT NULL,
             username    TEXT NOT NULL,
@@ -227,34 +229,36 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
     Ok(server.run())
 }
 
-#[post("/event")]
+#[post("/habit/{habit_id}/event")]
 async fn create_event(
     req: HttpRequest,
+    path: web::Path<String>,
     event: web::Json<Event>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new event");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let result: Option<i64> = conn
+    let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), event.habit.clone()),
+            "SELECT id FROM habit WHERE id=?1 AND username=?2",
+            (&habit_id, &username),
             |row| row.get(0),
         )
         .optional()
         .unwrap();
 
-    if result.is_none() {
+    if habit_id.is_none() {
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
     let result = conn.execute(
         "INSERT INTO event (habit_id, date_time) VALUES (?1, ?2)",
-        (result, &event.date_time),
+        (habit_id, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -270,34 +274,36 @@ async fn create_event(
     Ok(HttpResponse::Created().finish())
 }
 
-#[delete("/event")]
+#[delete("/habit/{habit_id}/event")]
 async fn delete_event(
     req: HttpRequest,
+    path: web::Path<String>,
     event: web::Json<Event>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete event");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let result: Option<i64> = conn
+    let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), event.habit.clone()),
+            "SELECT id FROM habit WHERE id=?1 AND username=?2",
+            (&habit_id, &username),
             |row| row.get(0),
         )
         .optional()
         .unwrap();
 
-    if result.is_none() {
+    if habit_id.is_none() {
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
     let result = conn.execute(
         "DELETE FROM event WHERE id = (SELECT id FROM event WHERE habit_id=?1 AND date_time=?2 LIMIT 1)",
-        (result, &event.date_time),
+        (&habit_id, &event.date_time),
     );
     match result {
         Ok(_) => {
@@ -324,9 +330,10 @@ async fn create_habit(
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+    let habit_id = Uuid::new_v4();
     let result = conn.execute(
-        "INSERT INTO habit (username, name, description) VALUES (?1, ?2, ?3)",
-        (&username, &habit.name, &habit.description),
+        "INSERT INTO habit (id, username, name, description) VALUES (?1, ?2, ?3, ?4)",
+        (&habit_id.to_string(), &username, &habit.name, &habit.description),
     );
     match result {
         Ok(_) => {
@@ -339,10 +346,10 @@ async fn create_habit(
             )));
         }
     }
-    Ok(HttpResponse::Created().finish())
+    Ok(HttpResponse::Ok().json(ResponseHabitDetails { id: habit_id.to_string(), name: habit.name.clone(), description: habit.description.clone(), }))
 }
 
-#[delete("/habit/{habit}")]
+#[delete("/habit/{habit_id}")]
 async fn delete_habit(
     req: HttpRequest,
     path: web::Path<String>,
@@ -350,16 +357,16 @@ async fn delete_habit(
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete habit");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
-    let habit = path.into_inner();
+    let habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let tx = conn.transaction().unwrap();
 
-    let habit_id: Option<i64> = tx
+    let habit_id: Option<String> = tx
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), &habit),
+            "SELECT id FROM habit WHERE username=?1 AND id=?2",
+            (&username, &habit_id),
             |row| row.get(0),
         )
         .optional()
@@ -369,7 +376,7 @@ async fn delete_habit(
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [habit_id.unwrap()]);
+    let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [&habit_id]);
     match result {
         Ok(_) => {
             info!("deleted habit events");
@@ -383,8 +390,8 @@ async fn delete_habit(
     }
 
     let result = tx.execute(
-        "DELETE FROM habit WHERE username=?1 AND name=?2",
-        (&username, &habit),
+        "DELETE FROM habit WHERE id=?1",
+        [&habit_id],
     );
     match result {
         Ok(_) => {
@@ -414,7 +421,7 @@ async fn delete_habit(
     Ok(HttpResponse::Ok().finish())
 }
 
-#[put("/habit/{habit}")]
+#[put("/habit/{habit_id}")]
 async fn edit_habit(
     req: HttpRequest,
     new_habit: web::Json<InputHabit>,
@@ -422,15 +429,15 @@ async fn edit_habit(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Edit habit");
-    let habit = path.into_inner();
+    let habit_id = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
     let result = conn.execute(
-        "UPDATE habit SET name=?1, description=?2 WHERE username=?3 AND name=?4",
-        (&new_habit.name, &new_habit.description, &username, &habit),
+        "UPDATE habit SET name=?1, description=?2 WHERE username=?3 AND id=?4",
+        (&new_habit.name, &new_habit.description, &username, &habit_id),
     );
     match result {
         Ok(updated) => {
@@ -459,7 +466,7 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT h.name, max(e.date_time), u.time_zone 
+        .prepare("SELECT h.id, h.name, max(e.date_time), u.time_zone 
                   FROM habit h LEFT JOIN event e ON h.id = e.habit_id JOIN user u ON h.username = u.username 
                   WHERE h.username = ?1 
                   GROUP BY h.id")
@@ -467,10 +474,11 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
 
     let habit_iter = stmt
         .query_map([username.as_str()], |row| {
-            let habit_name: String = row.get(0)?;
-            let state = match row.get::<usize, String>(1) {
+            let habit_id: String = row.get(0)?;
+            let habit_name: String = row.get(1)?;
+            let state = match row.get::<usize, String>(2) {
                 Ok(latest_event_date) => {
-                    let tz: Tz = row.get::<usize, String>(2)?.parse().unwrap();
+                    let tz: Tz = row.get::<usize, String>(3)?.parse().unwrap();
                     let local_time = Local::now();
                     let user_time = local_time.with_timezone(&tz).date_naive();
 
@@ -485,6 +493,7 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
                 Err(_) => HabitState::Pending,
             };
             Ok(ResponseHabit {
+                id: habit_id,
                 name: habit_name,
                 state,
             })
@@ -499,23 +508,23 @@ async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResp
     Ok(HttpResponse::Ok().json(habits))
 }
 
-#[get("/habit/{habit}")]
+#[get("/habit/{habit_id}")]
 async fn get_habit_details(
     path: web::Path<String>,
     req: HttpRequest,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Get habit details");
-    let habit = path.into_inner();
+    let habit_id = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
-    let result: Option<(String, String)> = conn
+    let result: Option<(String, String, String)> = conn
         .query_row_and_then(
-            "SELECT name, description FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), habit.clone()),
-            |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
+            "SELECT id, name, description FROM habit WHERE id=?1 AND username=?2",
+            (&habit_id, &username),
+            |row| Ok((row.get(0).unwrap(), row.get(1).unwrap(), row.get(2).unwrap())),
         )
         .optional()
         .unwrap();
@@ -524,37 +533,38 @@ async fn get_habit_details(
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let (habit_name, habit_description) = result.unwrap();
+    let (habit_id, habit_name, habit_description) = result.unwrap();
 
     Ok(HttpResponse::Ok().json(ResponseHabitDetails {
+        id: habit_id,
         name: habit_name,
         description: habit_description,
     }))
 }
 
-#[get("/calendar/{habit}")]
+#[get("/habit/{habit_id}/event")]
 async fn get_calendar(
     path: web::Path<String>,
     state: web::Data<State>,
     req: HttpRequest,
 ) -> Result<HttpResponse, CustomError> {
-    let habit = path.into_inner();
+    let habit_id = path.into_inner();
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
-    info!("Get calendar for habit = {} and user = {}", habit, username);
+    info!("Get events for habit = {} and user = {}", habit_id, username);
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let result: Option<i64> = conn
+    let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND name=?2",
-            (username.clone(), habit.clone()),
+            "SELECT id FROM habit WHERE username=?1 AND id=?2",
+            (&username, &habit_id),
             |row| row.get(0),
         )
         .optional()
         .unwrap();
 
-    if result.is_none() {
+    if habit_id.is_none() {
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
@@ -563,9 +573,8 @@ async fn get_calendar(
         .unwrap();
 
     let event_iter = stmt
-        .query_map([result.unwrap()], |row| {
+        .query_map([&habit_id], |row| {
             Ok(Event {
-                habit: habit.clone(),
                 date_time: row.get(0)?,
             })
         })

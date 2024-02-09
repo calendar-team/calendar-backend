@@ -12,23 +12,24 @@ struct Jwt {
 
 #[derive(Deserialize)]
 struct Event {
-    habit: String,
     date_time: String,
 }
 
 #[derive(Deserialize)]
-struct Calendar {
+struct Events {
     events: Vec<Event>,
 }
 
 #[derive(Deserialize)]
 struct Habit {
+    id: String,
     name: String,
     state: String,
 }
 
 #[derive(Deserialize)]
 struct HabitDetails {
+    id: String,
     name: String,
     description: String,
 }
@@ -67,7 +68,7 @@ async fn create_event_works() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -76,15 +77,16 @@ async fn create_event_works() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 
     // Act
     let response_event = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token)
         .json(&event)
         .send()
@@ -97,7 +99,7 @@ async fn create_event_works() {
 }
 
 #[tokio::test]
-async fn create_event_returns_400_when_fields_are_not_available() {
+async fn create_event_returns_400_when_date_time_field_is_not_sent() {
     // Arrange - create the user
     let address = spawn_app();
     let username = "djacota";
@@ -123,33 +125,29 @@ async fn create_event_returns_400_when_fields_are_not_available() {
     let jwt: Jwt = response.json::<Jwt>().await.unwrap();
     assert!(!jwt.token.is_empty());
 
-    // Arrange - event without name
-    let event = serde_json::json!({
-        "username": "djacota",
-        "date_time": "09-05-2023"
-    });
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "daily math practice", "description": "Learn from Linear Algebra Done Right book"});
 
     // Act
     let response = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
-        .bearer_auth(jwt.token.clone())
-        .json(&event)
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(&jwt.token)
+        .json(&habit)
         .send()
         .await
         .expect("Failed to execute request.");
 
     // Assert
-    assert_eq!(400, response.status().as_u16());
+    assert!(response.status().is_success());
+
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
 
     // Arrange event without date_time
-    let event = serde_json::json!({
-        "username": "djacota",
-        "name": "add_bad_request_test",
-    });
+    let event = serde_json::json!({});
 
     // Act
     let response = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token)
         .json(&event)
         .send()
@@ -166,13 +164,12 @@ async fn event_requests_missing_authorization_are_rejected() {
     let address = spawn_app();
 
     let event = serde_json::json!({
-        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 
     // Act
     let response = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/test/event", &address))
         .json(&event)
         .send()
         .await
@@ -188,13 +185,12 @@ async fn event_requests_with_invalid_credentials_are_rejected() {
     let address = spawn_app();
 
     let event = serde_json::json!({
-        "habit": "daily math practice",
         "date_time": "09-05-2023"
     });
 
     // Act
     let response = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/test/event", &address))
         .bearer_auth("JWT_Random")
         .json(&event)
         .send()
@@ -296,15 +292,16 @@ async fn delete_event_works() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "habit": "daily stretch",
         "date_time": "11-25-2023"
     });
 
     // Act
     let response_event = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -317,7 +314,7 @@ async fn delete_event_works() {
 
     // Act - get all the events
     let response_events = reqwest::Client::new()
-        .get(&format!("{}/calendar/daily stretch", &address))
+        .get(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .send()
         .await
@@ -325,16 +322,15 @@ async fn delete_event_works() {
 
     // Assert
     assert!(response_events.status().is_success());
-    let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
-    assert_eq!(1, calendar.events.len());
+    let events: Events = response_events.json::<Events>().await.unwrap();
+    assert_eq!(1, events.events.len());
 
-    let response_event = &calendar.events[0];
-    assert_eq!("daily stretch", response_event.habit);
+    let response_event = &events.events[0];
     assert_eq!("11-25-2023", response_event.date_time);
 
     // Act - delete event
     let response_event = reqwest::Client::new()
-        .delete(&format!("{}/event", &address))
+        .delete(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -347,7 +343,7 @@ async fn delete_event_works() {
 
     // Act - get all the events
     let response_events = reqwest::Client::new()
-        .get(&format!("{}/calendar/daily stretch", &address))
+        .get(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token)
         .send()
         .await
@@ -355,7 +351,7 @@ async fn delete_event_works() {
 
     // Assert
     assert!(response_events.status().is_success());
-    let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
+    let calendar: Events = response_events.json::<Events>().await.unwrap();
     assert!(calendar.events.is_empty());
 }
 
@@ -402,6 +398,8 @@ async fn delete_habit_works() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Arrange - create another habit
     let habit = serde_json::json!({"name": "daily coffee", "description": "COFFEE!!"});
 
@@ -419,13 +417,12 @@ async fn delete_habit_works() {
 
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "habit": "daily stretch",
         "date_time": "11-25-2023"
     });
 
     // Act
     let response_event = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -438,7 +435,7 @@ async fn delete_habit_works() {
 
     // Act - delete habit
     let response_habit = reqwest::Client::new()
-        .delete(&format!("{}/habit/daily stretch", &address))
+        .delete(&format!("{}/habit/{}", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .send()
         .await
@@ -464,7 +461,7 @@ async fn delete_habit_works() {
 
     // Act - get all the events
     let response_events = reqwest::Client::new()
-        .get(&format!("{}/calendar/daily stretch", &address))
+        .get(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token)
         .send()
         .await
@@ -517,15 +514,16 @@ async fn edit_habit_works() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "habit": "daily stretch",
         "date_time": "2023-11-25T12:12:12.0000Z"
     });
 
     // Act
     let response_event = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -544,7 +542,7 @@ async fn edit_habit_works() {
 
     // Act - edit habit
     let response_habit = reqwest::Client::new()
-        .put(&format!("{}/habit/daily stretch", &address))
+        .put(&format!("{}/habit/{}", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&habit)
         .send()
@@ -555,20 +553,9 @@ async fn edit_habit_works() {
     assert!(response_habit.status().is_success());
     assert_eq!(Some(0), response_habit.content_length());
 
-    // Act - get all the events
-    let response_events = reqwest::Client::new()
-        .get(&format!("{}/calendar/daily stretch", &address))
-        .bearer_auth(jwt.token.clone())
-        .send()
-        .await
-        .expect("Failed the get all the events.");
-
-    // Assert
-    assert_eq!(StatusCode::NOT_FOUND, response_events.status());
-
     // Act - get all the events for the updated habit
     let response_events = reqwest::Client::new()
-        .get(&format!("{}/calendar/daily yoga", &address))
+        .get(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .send()
         .await
@@ -576,10 +563,9 @@ async fn edit_habit_works() {
 
     // Assert
     assert!(response_events.status().is_success());
-    let calendar: Calendar = response_events.json::<Calendar>().await.unwrap();
+    let calendar: Events = response_events.json::<Events>().await.unwrap();
     assert_eq!(1, calendar.events.len());
     let response_event = &calendar.events[0];
-    assert_eq!("daily yoga", response_event.habit);
     assert_eq!("2023-11-25T12:12:12.0000Z", response_event.date_time);
 
     // Act - get all the habits
@@ -596,6 +582,7 @@ async fn edit_habit_works() {
     assert_eq!(1, habits.len());
     assert_eq!("daily yoga", habits[0].name);
     assert_eq!("Pending", habits[0].state);
+    assert_eq!(habit_id, habits[0].id);
 }
 
 #[tokio::test]
@@ -641,9 +628,11 @@ async fn edit_habit_requests_missing_authorization_are_rejected() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Act - edit habit
     let response_habit = reqwest::Client::new()
-        .put(&format!("{}/habit/daily stretch", &address))
+        .put(&format!("{}/habit/{}", &address, habit_id))
         .json(&habit)
         .send()
         .await
@@ -685,7 +674,7 @@ async fn edit_non_existent_habit_rejected() {
 
     // Act - edit habit
     let response_habit = reqwest::Client::new()
-        .put(&format!("{}/habit/daily stretch", &address))
+        .put(&format!("{}/habit/test", &address))
         .bearer_auth(jwt.token.clone())
         .json(&habit)
         .send()
@@ -738,17 +727,18 @@ async fn event_status_is_done_when_event_is_created_today() {
 
     // Assert
     assert!(response.status().is_success());
+
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
     let utc_time = Utc::now();
 
     // Arrange - create an event for the previously created user and habit
     let event = serde_json::json!({
-        "habit": "daily stretch",
         "date_time": utc_time.to_rfc3339(),
     });
 
     // Act
     let response_event = reqwest::Client::new()
-        .post(&format!("{}/event", &address))
+        .post(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -773,10 +763,11 @@ async fn event_status_is_done_when_event_is_created_today() {
     assert_eq!(1, habits.len());
     assert_eq!("daily stretch", habits[0].name);
     assert_eq!("Done", habits[0].state);
+    assert_eq!(habit_id, habits[0].id);
 
     // Act - delete the today's event
     let response_event = reqwest::Client::new()
-        .delete(&format!("{}/event", &address))
+        .delete(&format!("{}/habit/{}/event", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .json(&event)
         .send()
@@ -801,6 +792,7 @@ async fn event_status_is_done_when_event_is_created_today() {
     assert_eq!(1, habits.len());
     assert_eq!("daily stretch", habits[0].name);
     assert_eq!("Pending", habits[0].state);
+    assert_eq!(habit_id, habits[0].id);
 }
 
 #[tokio::test]
@@ -846,9 +838,11 @@ async fn get_habit_details_correctly_returned() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Act - get habit details
     let response_habit = reqwest::Client::new()
-        .get(&format!("{}/habit/daily stretch", &address))
+        .get(&format!("{}/habit/{}", &address, habit_id))
         .bearer_auth(jwt.token.clone())
         .send()
         .await
@@ -859,6 +853,7 @@ async fn get_habit_details_correctly_returned() {
     let habit_details: HabitDetails = response_habit.json::<HabitDetails>().await.unwrap();
     assert_eq!("daily stretch", habit_details.name);
     assert_eq!("daily at 08:00", habit_details.description);
+    assert_eq!(habit_id, habit_details.id);
 }
 
 #[tokio::test]
@@ -904,9 +899,11 @@ async fn get_habit_details_requests_missing_authorization_are_rejected() {
     // Assert
     assert!(response.status().is_success());
 
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
     // Act - get habit details
     let response_habit = reqwest::Client::new()
-        .get(&format!("{}/habit/daily stretch", &address))
+        .get(&format!("{}/habit/{}", &address, habit_id))
         .send()
         .await
         .expect("Failed to edit habit.");
@@ -945,7 +942,7 @@ async fn get_habit_details_for_non_existent_habit_is_rejected() {
 
     // Act - get habit details
     let response_habit = reqwest::Client::new()
-        .get(&format!("{}/habit/daily stretch", &address))
+        .get(&format!("{}/habit/test", &address))
         .bearer_auth(jwt.token.clone())
         .send()
         .await
