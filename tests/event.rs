@@ -283,7 +283,7 @@ async fn delete_event_works() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -302,7 +302,7 @@ async fn delete_event_works() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -315,7 +315,7 @@ async fn delete_event_works() {
     // Act - get all the events
     let response_events = reqwest::Client::new()
         .get(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed the get all the events.");
@@ -331,7 +331,7 @@ async fn delete_event_works() {
     // Act - delete event
     let response_event = reqwest::Client::new()
         .delete(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -389,7 +389,7 @@ async fn delete_habit_works() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -406,7 +406,7 @@ async fn delete_habit_works() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -423,7 +423,7 @@ async fn delete_habit_works() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -436,7 +436,7 @@ async fn delete_habit_works() {
     // Act - delete habit
     let response_habit = reqwest::Client::new()
         .delete(&format!("{}/habit/{}", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed to delete habit.");
@@ -448,7 +448,7 @@ async fn delete_habit_works() {
     // Act - get all the habits
     let response_habits = reqwest::Client::new()
         .get(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed the get all the habits.");
@@ -505,7 +505,7 @@ async fn edit_habit_works() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -524,7 +524,7 @@ async fn edit_habit_works() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -543,7 +543,7 @@ async fn edit_habit_works() {
     // Act - edit habit
     let response_habit = reqwest::Client::new()
         .put(&format!("{}/habit/{}", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -556,7 +556,7 @@ async fn edit_habit_works() {
     // Act - get all the events for the updated habit
     let response_events = reqwest::Client::new()
         .get(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed the get all the events.");
@@ -619,7 +619,7 @@ async fn edit_habit_requests_missing_authorization_are_rejected() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -675,7 +675,7 @@ async fn edit_non_existent_habit_rejected() {
     // Act - edit habit
     let response_habit = reqwest::Client::new()
         .put(&format!("{}/habit/test", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -719,7 +719,7 @@ async fn event_status_is_done_when_event_is_created_today() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -739,7 +739,7 @@ async fn event_status_is_done_when_event_is_created_today() {
     // Act
     let response_event = reqwest::Client::new()
         .post(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -752,7 +752,7 @@ async fn event_status_is_done_when_event_is_created_today() {
     // Act - get all the habits
     let response_habits = reqwest::Client::new()
         .get(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed the get all the habits.");
@@ -768,7 +768,7 @@ async fn event_status_is_done_when_event_is_created_today() {
     // Act - delete the today's event
     let response_event = reqwest::Client::new()
         .delete(&format!("{}/habit/{}/event", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&event)
         .send()
         .await
@@ -829,7 +829,7 @@ async fn get_habit_details_correctly_returned() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -843,7 +843,7 @@ async fn get_habit_details_correctly_returned() {
     // Act - get habit details
     let response_habit = reqwest::Client::new()
         .get(&format!("{}/habit/{}", &address, habit_id))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed the get all the habits.");
@@ -890,7 +890,7 @@ async fn get_habit_details_requests_missing_authorization_are_rejected() {
     // Act
     let response = reqwest::Client::new()
         .post(&format!("{}/habit", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .json(&habit)
         .send()
         .await
@@ -943,7 +943,7 @@ async fn get_habit_details_for_non_existent_habit_is_rejected() {
     // Act - get habit details
     let response_habit = reqwest::Client::new()
         .get(&format!("{}/habit/test", &address))
-        .bearer_auth(jwt.token.clone())
+        .bearer_auth(&jwt.token)
         .send()
         .await
         .expect("Failed to edit habit.");

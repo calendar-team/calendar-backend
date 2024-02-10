@@ -210,12 +210,12 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
             .wrap(cors)
             .service(create_event)
             .service(delete_event)
-            .service(get_calendar)
+            .service(get_habit_events)
             .service(create_user)
             .service(create_habit)
             .service(delete_habit)
             .service(edit_habit)
-            .service(get_habit)
+            .service(get_all_habits)
             .service(get_habit_details)
             .service(login)
     });
@@ -374,8 +374,8 @@ async fn delete_habit(
 
     let habit_id: Option<String> = tx
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND id=?2",
-            (&username, &habit_id),
+            "SELECT id FROM habit WHERE id=?1 AND username=?2",
+            (&habit_id, &username),
             |row| row.get(0),
         )
         .optional()
@@ -442,12 +442,12 @@ async fn edit_habit(
     let conn = &mut *stmt_result;
 
     let result = conn.execute(
-        "UPDATE habit SET name=?1, description=?2 WHERE username=?3 AND id=?4",
+        "UPDATE habit SET name=?1, description=?2 WHERE id=?3 AND username=?4",
         (
             &new_habit.name,
             &new_habit.description,
-            &username,
             &habit_id,
+            &username,
         ),
     );
     match result {
@@ -470,7 +470,7 @@ async fn edit_habit(
 }
 
 #[get("/habit")]
-async fn get_habit(req: HttpRequest, state: web::Data<State>) -> Result<HttpResponse, CustomError> {
+async fn get_all_habits(req: HttpRequest, state: web::Data<State>) -> Result<HttpResponse, CustomError> {
     info!("Get habits");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
@@ -560,7 +560,7 @@ async fn get_habit_details(
 }
 
 #[get("/habit/{habit_id}/event")]
-async fn get_calendar(
+async fn get_habit_events(
     path: web::Path<String>,
     state: web::Data<State>,
     req: HttpRequest,
@@ -577,8 +577,8 @@ async fn get_calendar(
 
     let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT id FROM habit WHERE username=?1 AND id=?2",
-            (&username, &habit_id),
+            "SELECT id FROM habit WHERE id=?1 AND username=?2",
+            (&habit_id, &username),
             |row| row.get(0),
         )
         .optional()
