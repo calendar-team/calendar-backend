@@ -136,7 +136,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         conn.execute(
             "CREATE TABLE event (
             id          INTEGER PRIMARY KEY,
-            habit_id    INTEGER NOT NULL,
+            habit_id    TEXT NOT NULL,
             date_time   TEXT NOT NULL,
             FOREIGN KEY (habit_id) REFERENCES habit (id) ON DELETE CASCADE ON UPDATE CASCADE
         )",
