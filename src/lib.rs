@@ -470,7 +470,10 @@ async fn edit_habit(
 }
 
 #[get("/habit")]
-async fn get_all_habits(req: HttpRequest, state: web::Data<State>) -> Result<HttpResponse, CustomError> {
+async fn get_all_habits(
+    req: HttpRequest,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
     info!("Get habits");
     let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
 
