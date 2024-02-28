@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Setup WARP
+      uses: fscarmen/warp-on-actions@v1.1
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
