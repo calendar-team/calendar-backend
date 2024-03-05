@@ -14,10 +14,12 @@ use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
+use rusqlite::types::{FromSqlResult, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, OptionalExtension};
 use rustls::ServerConfig;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
@@ -51,12 +53,70 @@ struct ResponseHabitDetails {
     id: String,
     name: String,
     description: String,
+    recurrence: Recurrence,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+enum RecurrenceType {
+    Days,
+    Weeks,
+}
+
+impl rusqlite::ToSql for RecurrenceType {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+    }
+}
+
+impl rusqlite::types::FromSql for RecurrenceType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let rec: RecurrenceType = serde_json::from_str(value.as_str()?).unwrap();
+        Ok(rec)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, Eq, PartialEq, Clone)]
+enum WeekDay {
+    Mon,
+    Tue,
+    Wed,
+    Thu,
+    Fri,
+    Sat,
+    Sun,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct WeekDays {
+    days: HashSet<WeekDay>,
+}
+
+impl rusqlite::ToSql for WeekDays {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+    }
+}
+
+impl rusqlite::types::FromSql for WeekDays {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let rec: WeekDays = serde_json::from_str(value.as_str()?).unwrap();
+        Ok(rec)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Recurrence {
+    rec_type: RecurrenceType,
+    every: u32,
+    from: String,
+    on: Option<WeekDays>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct InputHabit {
     name: String,
     description: String,
+    recurrence: Recurrence,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,6 +160,8 @@ pub enum CustomError {
     UnexpectedError(#[from] anyhow::Error),
     #[error("Not found")]
     NotFound(#[source] anyhow::Error),
+    #[error("{{\"message\": \"{0}\"}}")]
+    BadRequest(anyhow::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -114,6 +176,7 @@ impl ResponseError for CustomError {
             CustomError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             CustomError::AuthError(_) => StatusCode::UNAUTHORIZED,
             CustomError::NotFound(_) => StatusCode::NOT_FOUND,
+            CustomError::BadRequest(_) => StatusCode::BAD_REQUEST,
         }
     }
 }
@@ -123,7 +186,7 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         panic!("Cannot start Calendar Backend in PROD ENV without JWT signing key");
     }
 
-    let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("info"));
+    let _ = env_logger::try_init_from_env(env_logger::Env::new().default_filter_or("debug"));
 
     let result: Option<String> = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
@@ -135,9 +198,9 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
     if result.is_none() {
         conn.execute(
             "CREATE TABLE event (
-            id          INTEGER PRIMARY KEY,
-            habit_id    TEXT NOT NULL,
-            date_time   TEXT NOT NULL,
+            id        INTEGER PRIMARY KEY,
+            habit_id  TEXT NOT NULL,
+            date_time TEXT NOT NULL,
             FOREIGN KEY (habit_id) REFERENCES habit (id) ON DELETE CASCADE ON UPDATE CASCADE
         )",
             (),
@@ -145,13 +208,27 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
         .unwrap();
 
         conn.execute(
+            "CREATE TABLE recurrence (
+            id        TEXT PRIMARY KEY,
+            type      TEXT NOT NULL,
+            every     INTEGER NOT NULL,
+            from_date TEXT NOT NULL,
+            on_days   TEXT
+        )",
+            (),
+        )
+        .unwrap();
+
+        conn.execute(
             "CREATE TABLE habit (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            description TEXT NOT NULL,
-            username    TEXT NOT NULL,
+            id            TEXT PRIMARY KEY,
+            name          TEXT NOT NULL,
+            description   TEXT NOT NULL,
+            username      TEXT NOT NULL,
+            recurrence_id TEXT NOT NULL,
             UNIQUE(username, name),
-            FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
+            FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (recurrence_id) REFERENCES recurrence (id) ON DELETE CASCADE ON UPDATE CASCADE
         )",
             (),
         )
@@ -159,9 +236,9 @@ pub fn run(tcp_listener: TcpListener, conn: Connection) -> Result<Server, std::i
 
         conn.execute(
             "CREATE TABLE user (
-            username       TEXT PRIMARY KEY,
-            password_hash  TEXT NOT NULL,
-            time_zone      TEXT NOT NULL
+            username      TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            time_zone     TEXT NOT NULL
         )",
             (),
         )
@@ -330,14 +407,58 @@ async fn create_habit(
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+    let tx = conn.transaction().unwrap();
+
+    match habit.recurrence.rec_type {
+        RecurrenceType::Days => {
+            if habit.recurrence.on.is_some() {
+                return Err(CustomError::BadRequest(anyhow::anyhow!(
+                    "`Days` recurrence type does not allow selecting days of the week"
+                )));
+            }
+        }
+        RecurrenceType::Weeks => {
+            if habit.recurrence.on.is_none() || habit.recurrence.on.as_ref().unwrap().days.is_empty() {
+                return Err(CustomError::BadRequest(anyhow::anyhow!(
+                    "At least one day of the week should be selected for `Weeks` recurrence type"
+                )));
+            }
+        }
+    }
+
+    let recurrence_id = Uuid::new_v4();
+    let result = tx.execute(
+        "INSERT INTO recurrence (id, type, every, from_date, on_days) VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
+            &recurrence_id.to_string(),
+            &habit.recurrence.rec_type,
+            &habit.recurrence.every,
+            &habit.recurrence.from,
+            &habit.recurrence.on,
+        ),
+    );
+
+    match result {
+        Ok(_) => {
+            info!("created recurrence");
+        }
+        Err(e) => {
+            info!("error creating recurrence: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when creating the recurrence"
+            )));
+        }
+    }
+
     let habit_id = Uuid::new_v4();
-    let result = conn.execute(
-        "INSERT INTO habit (id, username, name, description) VALUES (?1, ?2, ?3, ?4)",
+    let result = tx.execute(
+        "INSERT INTO habit (id, username, name, description, recurrence_id) VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             &habit_id.to_string(),
             &username,
             &habit.name,
             &habit.description,
+            &recurrence_id.to_string(),
         ),
     );
     match result {
@@ -350,11 +471,26 @@ async fn create_habit(
                 "Error when creating the habit"
             )));
         }
+    } 
+
+    let result = tx.commit();
+    match result {
+        Ok(_) => {
+            info!("successfully commited the transaction");
+        }
+        Err(e) => {
+            error!("error commiting the transaction: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when commiting delete habit transaction"
+            )));
+        }
     }
+
     Ok(HttpResponse::Ok().json(ResponseHabitDetails {
         id: habit_id.to_string(),
         name: habit.name.clone(),
         description: habit.description.clone(),
+        recurrence: habit.recurrence.clone(),
     }))
 }
 
@@ -383,6 +519,19 @@ async fn delete_habit(
 
     if habit_id.is_none() {
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let result = tx.execute("DELETE FROM recurrence WHERE id=(SELECT recurrence_id FROM habit where id=?1)", [&habit_id]);
+    match result {
+        Ok(_) => {
+            info!("deleted recurrence details for habit");
+        }
+        Err(e) => {
+            info!("error deleting recurrence details for habit: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error deleting recurrence details for habit"
+            )));
+        }
     }
 
     let result = tx.execute("DELETE FROM event WHERE habit_id=?1", [&habit_id]);
@@ -440,8 +589,9 @@ async fn edit_habit(
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
+    let tx = conn.transaction().unwrap();
 
-    let result = conn.execute(
+    let result = tx.execute(
         "UPDATE habit SET name=?1, description=?2 WHERE id=?3 AND username=?4",
         (
             &new_habit.name,
@@ -462,6 +612,50 @@ async fn edit_habit(
             info!("error editing habit: {}", e);
             return Err(CustomError::UnexpectedError(anyhow::anyhow!(
                 "Error when editing the habit"
+            )));
+        }
+    }
+
+    match new_habit.recurrence.rec_type {
+        RecurrenceType::Days => {
+            if new_habit.recurrence.on.is_some() {
+                return Err(CustomError::BadRequest(anyhow::anyhow!(
+                    "`Days` recurrence type does not allow selecting days of the week"
+                )));
+            }
+        }
+        RecurrenceType::Weeks => {
+            if new_habit.recurrence.on.is_none() || new_habit.recurrence.on.as_ref().unwrap().days.is_empty() {
+                return Err(CustomError::BadRequest(anyhow::anyhow!(
+                    "At least one day of the week should be selected for `Weeks` recurrence type"
+                )));
+            }
+        }
+    }
+
+    let result = tx.execute("UPDATE recurrence SET type=?1, every=?2, from_date=?3, on_days=?4 WHERE id=(SELECT recurrence_id FROM habit WHERE id=?5)", 
+        (&new_habit.recurrence.rec_type, &new_habit.recurrence.every, &new_habit.recurrence.from, &new_habit.recurrence.on, &habit_id,));
+    match result {
+        Ok(_) => {
+            info!("updated recurrence details for habit");
+        }
+        Err(e) => {
+            info!("error updating recurrence details for habit: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error updating recurrence details for habit"
+            )));
+        }
+    }
+
+    let result = tx.commit();
+    match result {
+        Ok(_) => {
+            info!("successfully commited the transaction");
+        }
+        Err(e) => {
+            error!("error commiting the edit habit transaction: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error commiting edit habit transaction"
             )));
         }
     }
@@ -534,15 +728,16 @@ async fn get_habit_details(
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
-    let result: Option<(String, String, String)> = conn
+    let result: Option<(String, String, String, String)> = conn
         .query_row_and_then(
-            "SELECT id, name, description FROM habit WHERE id=?1 AND username=?2",
+            "SELECT id, name, description, recurrence_id FROM habit WHERE id=?1 AND username=?2",
             (&habit_id, &username),
             |row| {
                 Ok((
                     row.get(0).unwrap(),
                     row.get(1).unwrap(),
                     row.get(2).unwrap(),
+                    row.get(3).unwrap(),
                 ))
             },
         )
@@ -553,12 +748,32 @@ async fn get_habit_details(
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let (habit_id, habit_name, habit_description) = result.unwrap();
+    let (habit_id, habit_name, habit_description, recurrence_id) = result.unwrap();
+
+    let result: Option<(RecurrenceType, u32, String, Option<WeekDays>)> = conn
+        .query_row_and_then(
+            "SELECT type, every, from_date, on_days FROM recurrence WHERE id=?1",
+            [&recurrence_id],
+            |row| {
+                Ok((
+                    row.get(0).unwrap(),
+                    row.get(1).unwrap(),
+                    row.get(2).unwrap(),
+                    row.get(3).unwrap(),
+                ))
+            },
+        )
+        .optional()
+        .unwrap();
+
+    let (rec_type, every, from, on) = result.unwrap();
+    let recurrence = Recurrence { rec_type, every, from, on };
 
     Ok(HttpResponse::Ok().json(ResponseHabitDetails {
         id: habit_id,
         name: habit_name,
         description: habit_description,
+        recurrence,
     }))
 }
 
