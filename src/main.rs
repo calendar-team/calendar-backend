@@ -1,12 +1,31 @@
-use calendar_backend::run;
 use rusqlite::Connection;
-use std::net::TcpListener;
+use std::{
+    net::TcpListener,
+    sync::{Arc, Mutex},
+};
+use tokio::select;
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let db_path = "./database.db3";
     let conn = Connection::open(db_path).unwrap();
+    let state = calendar_backend_lib::types::State {
+        conn: Arc::new(Mutex::new(conn)),
+    };
+
+    let cloned_state = state.clone();
+    let task_scheduler = tokio::spawn(async {
+        calendar_backend_lib::scheduler::start_task_scheduler(cloned_state).await
+    });
 
     let listener = TcpListener::bind("[::]:8080").expect("Failed to bind to port 8080");
-    run(listener, conn)?.await
+    let server = calendar_backend_lib::run(listener, state)?;
+    select! {
+        _ = server => {
+            Ok(())
+        }
+        _ = task_scheduler => {
+            Ok(())
+        }
+    }
 }
