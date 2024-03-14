@@ -948,6 +948,21 @@ async fn create_user(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
+    let username: Option<String> = conn
+        .query_row_and_then(
+            "SELECT username FROM user where username = ?1",
+            [&user.username],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if username.is_some() {
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "Username already taken"
+        )));
+    }
+
     let password_hash = hash(&user.password);
     let result = conn.execute(
         "INSERT INTO user (username, password_hash, time_zone) VALUES (?1, ?2, ?3)",
