@@ -19,8 +19,6 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use chrono::{DateTime, Local, Utc};
-use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
@@ -445,78 +443,24 @@ async fn get_all_habits(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT id, name FROM habit where username=?1")
+        .prepare("SELECT h.id, h.name, MIN(t.id) FROM habit h LEFT JOIN task_def td ON h.id = td.habit_id LEFT JOIN task t ON td.id = t.task_def_id AND t.state = 'Pending' WHERE h.username=?1 GROUP BY h.id")
         .unwrap();
 
-    let habit_iter = stmt
+    let habits: Vec<ResponseHabit> = stmt
         .query_map([username.as_str()], |row| {
-            let habit_id: String = row.get(0)?;
-            let habit_name: String = row.get(1)?;
-            Ok(ResponseHabit {
-                id: habit_id,
-                name: habit_name,
-                state: HabitState::Pending,
-            })
-        })
-        .unwrap();
-
-    let mut habits = Vec::new();
-    for habit in habit_iter {
-        habits.push(habit.unwrap());
-    }
-
-    Ok(HttpResponse::Ok().json(habits))
-}
-
-#[get("/habit")]
-async fn get_all_habits2(
-    req: HttpRequest,
-    state: web::Data<State>,
-) -> Result<HttpResponse, CustomError> {
-    info!("Get habits");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
-
-    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
-    let conn = &mut *stmt_result;
-    let mut stmt = conn
-        .prepare("SELECT h.id, h.name, max(e.date_time), u.time_zone 
-                  FROM habit h LEFT JOIN event e ON h.id = e.habit_id JOIN user u ON h.username = u.username 
-                  WHERE h.username = ?1 
-                  GROUP BY h.id")
-        .unwrap();
-
-    let habit_iter = stmt
-        .query_map([username.as_str()], |row| {
-            let habit_id: String = row.get(0)?;
-            let habit_name: String = row.get(1)?;
-            let state = match row.get::<usize, String>(2) {
-                Ok(latest_event_date) => {
-                    let tz: Tz = row.get::<usize, String>(3)?.parse().unwrap();
-                    let local_time = Local::now();
-                    let user_time = local_time.with_timezone(&tz).date_naive();
-
-                    let event_time = latest_event_date.parse::<DateTime<Utc>>().unwrap();
-                    let event_time_in_user_time = event_time.with_timezone(&tz).date_naive();
-                    if user_time == event_time_in_user_time {
-                        HabitState::Done
-                    } else {
-                        HabitState::Pending
-                    }
-                }
-                Err(_) => HabitState::Pending,
+            let state: HabitState = match row.get::<usize, Option<String>>(2)? {
+                Some(_) => HabitState::Pending,
+                None => HabitState::Done,
             };
             Ok(ResponseHabit {
-                id: habit_id,
-                name: habit_name,
+                id: row.get(0)?,
+                name: row.get(1)?,
                 state,
             })
         })
-        .unwrap();
-
-    let mut habits = Vec::new();
-    for habit in habit_iter {
-        habits.push(habit.unwrap());
-    }
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
 
     Ok(HttpResponse::Ok().json(habits))
 }
