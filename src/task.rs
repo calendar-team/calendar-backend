@@ -313,3 +313,376 @@ pub struct Task {
 pub struct TaskInput {
     pub state: TaskState,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_daily_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Daily task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 1,
+                from: "2024-03-13T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-13T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-14T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-15T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+
+    #[test]
+    fn test_once_in_3_days_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Once in 3 days task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 3,
+                from: "2024-03-26T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-26T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-29T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-04-01T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+
+    #[test]
+    fn test_weekly_on_monday_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Weekly on Monday task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2024-03-13T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays {
+                    days: HashSet::from([WeekDay::Mon]),
+                }),
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-17T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-24T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-31T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+
+    #[test]
+    fn test_once_in_3_weeks_on_mon_and_tue_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Once in 3 weeks on Monday task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 3,
+                from: "2024-03-13T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays {
+                    days: HashSet::from([WeekDay::Mon, WeekDay::Tue]),
+                }),
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-31T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-04-01T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-04-21T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+
+    #[test]
+    fn test_monthly_on_31_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Monthly on 31 task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2024-02-13T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: HashSet::from([31]),
+                }),
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-02-28T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-30T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-04-29T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+
+    #[test]
+    fn test_once_in_3_months_on_30_and_31_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Once in 3 months on 30 and 31 task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 3,
+                from: "2024-03-30T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: HashSet::from([30, 31]),
+                }),
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-03-30T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-06-29T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-09-29T21:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+
+        let fourth_due = task_def.get_next(third_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-12-29T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            fourth_due
+        );
+
+        let fifth_due = task_def.get_next(fourth_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-12-30T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            fifth_due
+        );
+    }
+
+    #[test]
+    fn test_yearly_on_29_feb_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Yearly on 29th of Feb task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Years,
+                every: 1,
+                from: "2020-02-28T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2020-02-28T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2021-02-27T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2022-02-27T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+
+        let fourth_due = task_def.get_next(third_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2023-02-27T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            fourth_due
+        );
+
+        let fifth_due = task_def.get_next(fourth_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2024-02-28T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            fifth_due
+        );
+    }
+
+    #[test]
+    fn test_every_5_years_on_25_mar_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "Every 5 years on 25th of March task".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Years,
+                every: 5,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+        let first_due = task_def.get_first(&tz);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2022-03-24T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            first_due
+        );
+
+        let second_due = task_def.get_next(first_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2027-03-24T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            second_due
+        );
+
+        let third_due = task_def.get_next(second_due);
+        assert_eq!(
+            DateTime::parse_from_rfc3339("2032-03-24T22:00:00+00:00")
+                .unwrap()
+                .with_timezone(&tz),
+            third_due
+        );
+    }
+}
