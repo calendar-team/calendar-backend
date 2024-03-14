@@ -26,7 +26,6 @@ use log::{error, info};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use rustls::ServerConfig;
-use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::env;
@@ -36,11 +35,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs::File, io::BufReader};
 use types::State;
 use uuid::Uuid;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Event {
-    date_time: String,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 enum HabitState {
@@ -70,31 +64,21 @@ struct InputHabit {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct Calendar {
-    events: Vec<Event>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 struct Jwt {
     token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct CreateUser {
+struct User {
     username: String,
     password: String,
     time_zone: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct LoginUser {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct UserCredentials {
     username: String,
     password: String,
-}
-
-struct Credentials {
-    username: String,
-    password: Secret<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -1008,7 +992,7 @@ async fn complete_task(
 
 #[post("/user")]
 async fn create_user(
-    user: web::Json<CreateUser>,
+    user: web::Json<User>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new user");
@@ -1039,18 +1023,14 @@ async fn create_user(
 
 #[post("/login")]
 async fn login(
-    user: web::Json<LoginUser>,
+    user: web::Json<UserCredentials>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Login user");
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
-    let credentials = Credentials {
-        username: user.username.clone(),
-        password: user.password.parse().unwrap(),
-    };
-    validate_credentials(credentials, conn).await?;
+    validate_credentials(&user, conn)?;
 
     Ok(HttpResponse::Ok().json(Jwt {
         token: generate_jwt(user.username.clone())?,
@@ -1125,8 +1105,8 @@ fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
     Ok(token_data.claims.sub)
 }
 
-async fn validate_credentials(
-    credentials: Credentials,
+fn validate_credentials(
+    credentials: &UserCredentials,
     conn: &Connection,
 ) -> Result<(), CustomError> {
     let mut stmt = conn
@@ -1134,7 +1114,7 @@ async fn validate_credentials(
         .unwrap();
 
     let password_hash: Option<String> = stmt
-        .query_row([credentials.username.as_str()], |row| row.get(0))
+        .query_row([&credentials.username], |row| row.get(0))
         .optional()
         .unwrap();
 
@@ -1150,10 +1130,7 @@ async fn validate_credentials(
         .map_err(CustomError::UnexpectedError)?;
 
     Argon2::default()
-        .verify_password(
-            credentials.password.expose_secret().as_bytes(),
-            &expected_password,
-        )
+        .verify_password(credentials.password.as_bytes(), &expected_password)
         .context("Invalid password.")
         .map_err(CustomError::AuthError)?;
 
