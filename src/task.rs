@@ -83,8 +83,15 @@ pub struct Recurrence {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct TaskDefInput {
+    pub name: String,
+    pub description: String,
+    pub recurrence: Recurrence,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskDef {
-    pub id: Option<String>,
+    pub id: String,
     pub name: String,
     pub description: String,
     pub recurrence: Recurrence,
@@ -274,15 +281,35 @@ impl TaskDef {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum TaskState {
+    Pending,
+    Done,
+    Cancelled,
+}
+
+impl rusqlite::types::FromSql for TaskState {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let state: TaskState = serde_json::from_str(value.as_str()?).unwrap();
+        Ok(state)
+    }
+}
+
+impl rusqlite::ToSql for TaskState {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Task {
-    pub id: Option<String>,
-    pub name: Option<String>,
-    pub state: Option<String>,
-    pub due_on: Option<String>,
+    pub id: String,
+    pub name: String,
+    pub state: TaskState,
+    pub due_on: String,
     pub done_on: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskInput {
-    pub state: String,
+    pub state: TaskState,
 }

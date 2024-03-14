@@ -6,7 +6,7 @@ use tokio::time;
 use uuid::Uuid;
 
 use crate::{
-    task::{Recurrence, TaskDef},
+    task::{Recurrence, TaskDef, TaskState},
     types::State,
     CustomError,
 };
@@ -43,12 +43,15 @@ pub fn schedule_tasks(
         if next_due <= now {
             let task_id = Uuid::new_v4();
             match tx.execute(
-                "INSERT INTO task (id, task_def_id, state, due_on) VALUES (?1, ?2, 'Pending', ?3)",
-                (&task_id.to_string(), &task_def.id, next_due.to_rfc3339()),
+                "INSERT INTO task (id, task_def_id, state, due_on) VALUES (?1, ?2, ?3, ?4)",
+                (
+                    &task_id.to_string(),
+                    &task_def.id,
+                    TaskState::Pending,
+                    next_due.to_rfc3339(),
+                ),
             ) {
-                Ok(rows) => {
-                    info!("Successfully inserted {} rows", rows);
-                }
+                Ok(_) => {}
                 Err(e) => {
                     error!("Error creating new task: {}", e);
                     return Err(CustomError::UnexpectedError(anyhow::anyhow!(
@@ -108,17 +111,20 @@ async fn schedule(state: &State) {
             info!(
                 "Creating new task for {}({}) with due date on {}",
                 task.def.name,
-                task.def.id.as_ref().unwrap(),
+                task.def.id,
                 next_due.to_rfc3339(),
             );
             let task_id = Uuid::new_v4();
             match state.conn.lock().unwrap().execute(
-                "INSERT INTO task (id, task_def_id, state, due_on) VALUES (?1, ?2, 'Pending', ?3)",
-                (&task_id.to_string(), task.def.id, next_due.to_rfc3339()),
+                "INSERT INTO task (id, task_def_id, state, due_on) VALUES (?1, ?2, ?3, ?4)",
+                (
+                    &task_id.to_string(),
+                    task.def.id,
+                    TaskState::Pending,
+                    next_due.to_rfc3339(),
+                ),
             ) {
-                Ok(rows) => {
-                    info!("Successfully inserted {} rows", rows);
-                }
+                Ok(_) => {}
                 Err(e) => {
                     error!("Error creating new task: {}", e);
                 }

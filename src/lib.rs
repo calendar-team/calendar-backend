@@ -7,7 +7,9 @@ use crate::task::Recurrence;
 use crate::task::RecurrenceType;
 use crate::task::Task;
 use crate::task::TaskDef;
+use crate::task::TaskDefInput;
 use crate::task::TaskInput;
+use crate::task::TaskState;
 use actix_cors::Cors;
 use actix_web::dev::Server;
 use actix_web::http::header::{self, HeaderMap};
@@ -443,11 +445,11 @@ async fn get_all_habits(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let mut stmt = conn
-        .prepare("SELECT h.id, h.name, MIN(t.id) FROM habit h LEFT JOIN task_def td ON h.id = td.habit_id LEFT JOIN task t ON td.id = t.task_def_id AND t.state = 'Pending' WHERE h.username=?1 GROUP BY h.id")
+        .prepare("SELECT h.id, h.name, MIN(t.id) FROM habit h LEFT JOIN task_def td ON h.id = td.habit_id LEFT JOIN task t ON td.id = t.task_def_id AND t.state = ?1 WHERE h.username=?2 GROUP BY h.id")
         .unwrap();
 
     let habits: Vec<ResponseHabit> = stmt
-        .query_map([username.as_str()], |row| {
+        .query_map((TaskState::Pending, &username), |row| {
             let state: HabitState = match row.get::<usize, Option<String>>(2)? {
                 Some(_) => HabitState::Pending,
                 None => HabitState::Done,
@@ -562,7 +564,7 @@ async fn get_tasks_defs(
 async fn create_task_def(
     req: HttpRequest,
     path: web::Path<String>,
-    task_def: web::Json<TaskDef>,
+    task_def: web::Json<TaskDefInput>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new task definition");
@@ -649,9 +651,12 @@ async fn create_task_def(
 
     let recurrence_id = Uuid::new_v4();
     let task_def_id = Uuid::new_v4();
+    let task_def = task_def.into_inner();
     let task_def = TaskDef {
-        id: Some(task_def_id.to_string()),
-        ..task_def.into_inner()
+        id: task_def_id.to_string(),
+        name: task_def.name,
+        description: task_def.description,
+        recurrence: task_def.recurrence,
     };
 
     let result = tx.execute(
@@ -888,7 +893,7 @@ async fn complete_task(
         .query_row([&task_id], |row| {
             Ok(Task {
                 id: row.get(0).unwrap(),
-                name: None,
+                name: "".to_string(),
                 state: row.get(1).unwrap(),
                 due_on: row.get(2).unwrap(),
                 done_on: row.get(3).unwrap(),
@@ -896,13 +901,13 @@ async fn complete_task(
         })
         .unwrap();
 
-    if db_task.state.as_ref().unwrap() != "Pending" {
+    if !matches!(db_task.state, TaskState::Pending) {
         return Err(CustomError::BadRequest(anyhow::anyhow!(
             "Only tasks in Pending state can be changed"
         )));
     }
 
-    if task.state != "Done" && task.state != "Cancelled" {
+    if !matches!(task.state, TaskState::Done) && !matches!(task.state, TaskState::Cancelled) {
         return Err(CustomError::BadRequest(anyhow::anyhow!(
             "A task can only be transitioned to `Done` of `Cancelled` states"
         )));
