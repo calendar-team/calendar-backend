@@ -236,7 +236,7 @@ async fn edit_habit_works() {
     let habits: Vec<Habit> = response_habits.json::<Vec<Habit>>().await.unwrap();
     assert_eq!(1, habits.len());
     assert_eq!("daily yoga", habits[0].name);
-    assert_eq!("Pending", habits[0].state);
+    assert_eq!("Done", habits[0].state);
     assert_eq!(habit_id, habits[0].id);
 }
 
