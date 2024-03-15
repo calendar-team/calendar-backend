@@ -27,13 +27,13 @@ use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use std::{fs::File, io::BufReader};
 use types::State;
+use types::UtcNowFn;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -96,7 +96,7 @@ pub enum CustomError {
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     sub: String,
-    exp: usize,
+    exp: i64,
 }
 
 impl ResponseError for CustomError {
@@ -259,7 +259,7 @@ async fn create_habit(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new habit");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -298,7 +298,7 @@ async fn delete_habit(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Deleting the habit");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     let habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
@@ -401,7 +401,7 @@ async fn edit_habit(
 ) -> Result<HttpResponse, CustomError> {
     info!("Edit habit");
     let habit_id = path.into_inner();
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -440,7 +440,7 @@ async fn get_all_habits(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Get habits");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -475,7 +475,7 @@ async fn get_habit_details(
 ) -> Result<HttpResponse, CustomError> {
     info!("Get habit details");
     let habit_id = path.into_inner();
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -514,7 +514,7 @@ async fn get_tasks_defs(
     req: HttpRequest,
 ) -> Result<HttpResponse, CustomError> {
     let habit_id = path.into_inner();
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!(
         "Get tasks definitions for habit = {} and user = {}",
         habit_id, username
@@ -568,7 +568,7 @@ async fn create_task_def(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new task definition");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     let habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
@@ -702,7 +702,7 @@ async fn create_task_def(
         .unwrap();
 
     let tz = tz.parse().unwrap();
-    schedule_tasks(&task_def, tz, &tx)?;
+    schedule_tasks(&task_def, tz, &tx, state.utc_now)?;
 
     let result = tx.commit();
 
@@ -728,7 +728,7 @@ async fn delete_task_def(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     info!("Delete task definition");
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     let (habit_id, task_def_id) = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
@@ -823,7 +823,7 @@ async fn get_tasks(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     let habit_id = path.into_inner();
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!("Get tasks for habit = {} and user = {}", habit_id, username);
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
@@ -869,7 +869,7 @@ async fn complete_task(
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
     let (habit_id, task_id) = path.into_inner();
-    let username = authenticate(req.headers()).map_err(CustomError::AuthError)?;
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!("Update task");
 
     let conn = state.conn.lock().expect("failed to lock conn");
@@ -981,7 +981,7 @@ async fn create_user(
     }
 
     Ok(HttpResponse::Created().json(Jwt {
-        token: generate_jwt(user.username.clone())?,
+        token: generate_jwt(user.username.clone(), state.utc_now)?,
     }))
 }
 
@@ -997,16 +997,16 @@ async fn login(
     validate_credentials(&user, conn)?;
 
     Ok(HttpResponse::Ok().json(Jwt {
-        token: generate_jwt(user.username.clone())?,
+        token: generate_jwt(user.username.clone(), state.utc_now)?,
     }))
 }
 
-fn generate_jwt(username: String) -> Result<String, CustomError> {
+fn generate_jwt(username: String, utc_now: UtcNowFn) -> Result<String, CustomError> {
     const ONE_MONTH: Duration = Duration::new(60 * 60 * 24 * 31, 0);
-    let token_exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + ONE_MONTH;
+    let token_exp = (utc_now() + ONE_MONTH).timestamp();
     let my_claims = Claims {
         sub: username.clone(),
-        exp: usize::try_from(token_exp.as_secs()).unwrap(),
+        exp: token_exp,
     };
     let token = match encode(
         &Header::default(),
@@ -1044,7 +1044,7 @@ fn load_rustls_config() -> ServerConfig {
         .unwrap()
 }
 
-fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
+fn authenticate(headers: &HeaderMap, utc_now: UtcNowFn) -> Result<String, anyhow::Error> {
     let header_value = headers
         .get("Authorization")
         .context("The 'Authorization' header was missing")?
@@ -1054,10 +1054,13 @@ fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
         .strip_prefix("Bearer ")
         .context("The authorization scheme was not 'Bearer'.")?;
 
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = false;
+
     let token_data = match decode::<Claims>(
         jwt,
         &DecodingKey::from_secret(get_jwt_key().as_bytes()),
-        &Validation::new(Algorithm::HS256),
+        &validation,
     ) {
         Ok(c) => c,
         Err(err) => {
@@ -1065,6 +1068,11 @@ fn authenticate(headers: &HeaderMap) -> Result<String, anyhow::Error> {
             return Err(anyhow::anyhow!("Invalid token: {}", err));
         }
     };
+
+    let now = utc_now().timestamp();
+    if token_data.claims.exp < now {
+        return Err(anyhow::anyhow!("Invalid token: token expired"));
+    }
 
     Ok(token_data.claims.sub)
 }

@@ -1,3 +1,4 @@
+use chrono::Utc;
 use rusqlite::Connection;
 use std::{
     net::TcpListener,
@@ -11,6 +12,7 @@ async fn main() -> Result<(), std::io::Error> {
     let conn = Connection::open(db_path).unwrap();
     let state = calendar_backend_lib::types::State {
         conn: Arc::new(Mutex::new(conn)),
+        utc_now: Utc::now,
     };
 
     let cloned_state = state.clone();

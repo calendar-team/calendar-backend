@@ -1,4 +1,5 @@
 use calendar_backend_lib::run;
+use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use rusqlite::Connection;
 use serde::Deserialize;
@@ -52,6 +53,15 @@ struct TaskDef {
     name: String,
     description: String,
     recurrence: Recurrence,
+}
+
+#[derive(Deserialize)]
+pub struct Task {
+    pub id: String,
+    pub name: String,
+    pub state: String,
+    pub due_on: String,
+    pub done_on: Option<String>,
 }
 
 #[tokio::test]
@@ -691,6 +701,15 @@ async fn get_habit_details_for_non_existent_habit_is_rejected() {
 #[tokio::test]
 async fn create_task_def_works() {
     // Arrange - create the user
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-03-15T13:00:00+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
     let address = spawn_app();
     let username = "djacota";
     let password = "password";
@@ -750,7 +769,7 @@ async fn create_task_def_works() {
     let other_habit_id = response.json::<HabitDetails>().await.unwrap().id;
 
     // Arrange - create task def
-    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 1000, "from": "2022-03-13T22:00:01+00:00"}});
+    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 1, "from": "2022-03-12T22:00:01+00:00"}});
 
     // Act
     let response = reqwest::Client::new()
@@ -765,7 +784,7 @@ async fn create_task_def_works() {
     assert!(response.status().is_success());
 
     // Arrange - create another task def
-    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 200, "from": "2022-03-13T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Fri"]}}});
+    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}});
 
     // Act
     let response = reqwest::Client::new()
@@ -780,7 +799,7 @@ async fn create_task_def_works() {
     assert!(response.status().is_success());
 
     // Arrange - create a task def for other habit
-    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 30, "from": "2022-03-13T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}});
+    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 3, "from": "2022-03-12T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}});
 
     // Act
     let response = reqwest::Client::new()
@@ -797,7 +816,7 @@ async fn create_task_def_works() {
     // Assert
     assert!(response.status().is_success());
 
-    // Act - get all tasks for habit
+    // Act - get all tasks defs for habit
     let response_tasks_defs = reqwest::Client::new()
         .get(&format!("{}/habit/{}/tasks_defs", &address, &habit_id))
         .bearer_auth(&jwt.token)
@@ -808,15 +827,15 @@ async fn create_task_def_works() {
     // Assert
     assert!(response_tasks_defs.status().is_success());
     let mut tasks_defs = response_tasks_defs.json::<Vec<TaskDef>>().await.unwrap();
-    tasks_defs.sort_by_key(|td| td.name.clone());
+    tasks_defs.sort_by(|td1, td2| td1.name.cmp(&td2.name));
 
     assert_eq!(2, tasks_defs.len());
     assert!(!tasks_defs[0].id.is_empty());
     assert_eq!("running", tasks_defs[0].name);
     assert_eq!("Run 10km", tasks_defs[0].description);
     assert_eq!("Days", tasks_defs[0].recurrence.rec_type);
-    assert_eq!(1000, tasks_defs[0].recurrence.every);
-    assert_eq!("2022-03-13T22:00:01+00:00", tasks_defs[0].recurrence.from);
+    assert_eq!(1, tasks_defs[0].recurrence.every);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks_defs[0].recurrence.from);
     assert!(tasks_defs[0].recurrence.on_week_days.is_none());
     assert!(tasks_defs[0].recurrence.on_month_days.is_none());
 
@@ -824,15 +843,15 @@ async fn create_task_def_works() {
     assert_eq!("swimming", tasks_defs[1].name);
     assert_eq!("Swim 10km", tasks_defs[1].description);
     assert_eq!("Weeks", tasks_defs[1].recurrence.rec_type);
-    assert_eq!(200, tasks_defs[1].recurrence.every);
-    assert_eq!("2022-03-13T22:00:02+00:00", tasks_defs[1].recurrence.from);
+    assert_eq!(2, tasks_defs[1].recurrence.every);
+    assert_eq!("2022-03-05T22:00:02+00:00", tasks_defs[1].recurrence.from);
     assert_eq!(
-        HashSet::from(["Tue".to_string(), "Fri".to_string()]),
+        HashSet::from(["Tue".to_string(), "Sat".to_string()]),
         tasks_defs[1].recurrence.on_week_days.as_ref().unwrap().days
     );
     assert!(tasks_defs[1].recurrence.on_month_days.is_none());
 
-    // Act - get all tasks for other habit
+    // Act - get all tasks defs for other habit
     let response_tasks_defs = reqwest::Client::new()
         .get(&format!(
             "{}/habit/{}/tasks_defs",
@@ -852,8 +871,8 @@ async fn create_task_def_works() {
     assert_eq!("Read before sleep", tasks_defs[0].name);
     assert_eq!("Read 10 min", tasks_defs[0].description);
     assert_eq!("Months", tasks_defs[0].recurrence.rec_type);
-    assert_eq!(30, tasks_defs[0].recurrence.every);
-    assert_eq!("2022-03-13T22:00:03+00:00", tasks_defs[0].recurrence.from);
+    assert_eq!(3, tasks_defs[0].recurrence.every);
+    assert_eq!("2022-03-12T22:00:03+00:00", tasks_defs[0].recurrence.from);
     assert!(tasks_defs[0].recurrence.on_week_days.is_none());
     assert_eq!(
         HashSet::from([13, 21]),
@@ -864,6 +883,49 @@ async fn create_task_def_works() {
             .unwrap()
             .days
     );
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(4, tasks.len());
+    assert!(!tasks[0].id.is_empty());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("Pending", tasks[0].state);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+    assert!(tasks[0].done_on.is_none());
+
+    assert!(!tasks[1].id.is_empty());
+    assert_eq!("running", tasks[1].name);
+    assert_eq!("Pending", tasks[1].state);
+    assert_eq!("2022-03-13T22:00:01+00:00", tasks[1].due_on);
+    assert!(tasks[1].done_on.is_none());
+
+    assert!(!tasks[2].id.is_empty());
+    assert_eq!("running", tasks[2].name);
+    assert_eq!("Pending", tasks[2].state);
+    assert_eq!("2022-03-14T22:00:01+00:00", tasks[2].due_on);
+    assert!(tasks[2].done_on.is_none());
+
+    assert!(!tasks[3].id.is_empty());
+    assert_eq!("swimming", tasks[3].name);
+    assert_eq!("Pending", tasks[3].state);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[3].due_on);
+    assert!(tasks[3].done_on.is_none());
+}
+
+static MOCK_UTC_NOW: Mutex<Option<DateTime<Utc>>> = Mutex::new(None);
+fn mock_utc_now() -> DateTime<Utc> {
+    MOCK_UTC_NOW.lock().unwrap().unwrap_or_else(Utc::now)
 }
 
 // launch the server as a background task
@@ -876,6 +938,7 @@ fn spawn_app() -> String {
     let conn = Connection::open_in_memory().unwrap();
     let state = calendar_backend_lib::types::State {
         conn: Arc::new(Mutex::new(conn)),
+        utc_now: mock_utc_now,
     };
 
     let server = run(listener, state).expect("Failed to bind address");

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     task::{Recurrence, TaskDef, TaskState},
-    types::State,
+    types::{State, UtcNowFn},
     CustomError,
 };
 
@@ -30,8 +30,9 @@ pub fn schedule_tasks(
     task_def: &TaskDef,
     tz: Tz,
     tx: &Transaction,
+    utc_now: UtcNowFn,
 ) -> std::result::Result<(), CustomError> {
-    let now = Utc::now();
+    let now = utc_now();
     let mut last_due: Option<DateTime<Utc>> = None;
     loop {
         let next_due = match last_due {
@@ -92,7 +93,7 @@ async fn schedule(state: &State) {
         .map(|row| row.unwrap())
         .collect();
 
-    let now = Utc::now();
+    let now = (state.utc_now)();
 
     for task in tasks {
         let tz: Tz = task.time_zone.parse().unwrap();
