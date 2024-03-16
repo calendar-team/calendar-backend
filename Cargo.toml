@@ -3,10 +3,9 @@ name = "calendar-backend"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 path = "src/lib.rs"
+name = "calendar_backend_lib"
 
 [[bin]]
 path = "src/main.rs"
@@ -23,7 +22,7 @@ rustls = "0.22.2"
 rustls-pemfile = "2.1.1"
 actix-cors = "0.7.0"
 reqwest = { version = "0.11", features = ["json"] }
-tokio = { version = "1.36.0", features = ["macros"] }
+tokio = { version = "1.36.0", features = ["macros", "rt-multi-thread", "test-util"] }
 secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
