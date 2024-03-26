@@ -18,7 +18,7 @@ log = "0.4.21"
 env_logger = "0.11.3"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 actix-web = { version = "4.5.1", features = ["rustls-0_22"]}
-rustls = "0.22.2"
+rustls = "0.22.3"
 rustls-pemfile = "2.1.1"
 actix-cors = "0.7.0"
 reqwest = { version = "0.12", features = ["json"] }
@@ -26,10 +26,10 @@ tokio = { version = "1.36.0", features = ["macros", "rt-multi-thread", "test-uti
 secrecy = { version = "0.8" }
 anyhow = "1"
 thiserror = "1"
-regex = "1.10.3"
+regex = "1.10.4"
 argon2 = { version = "0.5.3", features = ["std"] }
 rand = "0.8.4"
-jsonwebtoken = "9.2.0"
+jsonwebtoken = "9.3.0"
 chrono = "0.4.35"
 chrono-tz = "0.8.6"
 uuid = { version = "1.8.0", features = ["v4"] }
