@@ -30,6 +30,6 @@ regex = "1.10.4"
 argon2 = { version = "0.5.3", features = ["std"] }
 rand = "0.8.4"
 jsonwebtoken = "9.3.0"
-chrono = "0.4.35"
+chrono = "0.4.37"
 chrono-tz = "0.8.6"
 uuid = { version = "1.8.0", features = ["v4"] }
