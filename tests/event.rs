@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use rusqlite::Connection;
 use serde::Deserialize;
+use serial_test::serial;
 use std::{
     collections::HashSet,
     net::TcpListener,
@@ -983,6 +984,7 @@ async fn create_task_def_works() {
 }
 
 #[tokio::test]
+#[serial]
 async fn scheduler_works() {
     // Arrange - create the user
     {
@@ -1306,6 +1308,7 @@ async fn scheduler_works() {
     assert_eq!("2022-04-01T21:00:02+00:00", tasks[8].due_on);
 }
 
+#[serial]
 #[tokio::test]
 async fn scheduler_respects_end_condition() {
     // Arrange - create the user
