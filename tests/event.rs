@@ -984,6 +984,10 @@ async fn create_task_def_works() {
 }
 
 #[tokio::test]
+// TODO: fix this workaround, tests should be executed in parallel. Please note that currently we
+// execute tests sequentially because `MOCK_UTC_NOW` state is shared between tests, and we cannot
+// lock the state for the whole duration of execution (Mutex from std cannot be used in async
+// context, see: https://rust-lang.github.io/rust-clippy/master/index.html#/await_holding_lock
 #[serial]
 async fn scheduler_works() {
     // Arrange - create the user
