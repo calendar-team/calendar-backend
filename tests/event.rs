@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use rusqlite::Connection;
 use serde::Deserialize;
+use serial_test::serial;
 use std::{
     collections::HashSet,
     net::TcpListener,
@@ -771,7 +772,7 @@ async fn create_task_def_works() {
     let other_habit_id = response.json::<HabitDetails>().await.unwrap().id;
 
     // Arrange - create task def
-    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 1, "from": "2022-03-12T22:00:01+00:00"}});
+    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 1, "from": "2022-03-12T22:00:01+00:00" }, "ends_on": {"type": "Never"}});
 
     // Act
     let response = reqwest::Client::new()
@@ -786,7 +787,7 @@ async fn create_task_def_works() {
     assert!(response.status().is_success());
 
     // Arrange - create another task def
-    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}});
+    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}, "ends_on": {"type": "Never"}});
 
     // Act
     let response = reqwest::Client::new()
@@ -801,7 +802,7 @@ async fn create_task_def_works() {
     assert!(response.status().is_success());
 
     // Arrange - create a task def for other habit
-    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 3, "from": "2022-03-12T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}});
+    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 3, "from": "2022-03-12T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}, "ends_on": {"type": "Never"}});
 
     // Act
     let response = reqwest::Client::new()
@@ -983,6 +984,11 @@ async fn create_task_def_works() {
 }
 
 #[tokio::test]
+// TODO: fix this workaround, tests should be executed in parallel. Please note that currently we
+// execute tests sequentially because `MOCK_UTC_NOW` state is shared between tests, and we cannot
+// lock the state for the whole duration of execution (Mutex from std cannot be used in async
+// context, see: https://rust-lang.github.io/rust-clippy/master/index.html#/await_holding_lock
+#[serial]
 async fn scheduler_works() {
     // Arrange - create the user
     {
@@ -1053,7 +1059,7 @@ async fn scheduler_works() {
     let other_habit_id = response.json::<HabitDetails>().await.unwrap().id;
 
     // Arrange - create task def
-    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 7, "from": "2022-03-12T22:00:01+00:00"}});
+    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 7, "from": "2022-03-12T22:00:01+00:00"}, "ends_on": { "type": "Never" }});
 
     // Act
     let response = reqwest::Client::new()
@@ -1068,7 +1074,7 @@ async fn scheduler_works() {
     assert!(response.status().is_success());
 
     // Arrange - create another task def
-    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}});
+    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}, "ends_on": { "type": "Never" }});
 
     // Act
     let response = reqwest::Client::new()
@@ -1083,7 +1089,7 @@ async fn scheduler_works() {
     assert!(response.status().is_success());
 
     // Arrange - create a task def for other habit
-    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 3, "from": "2022-03-12T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}});
+    let task_def = serde_json::json!({"name": "Read before sleep", "description": "Read 10 min", "recurrence": {"rec_type": "Months", "every": 3, "from": "2022-03-12T22:00:03+00:00", "on_month_days": { "days": [13, 21]}}, "ends_on": { "type": "Never" }});
 
     // Act
     let response = reqwest::Client::new()
@@ -1304,6 +1310,288 @@ async fn scheduler_works() {
 
     assert_eq!("swimming", tasks[8].name);
     assert_eq!("2022-04-01T21:00:02+00:00", tasks[8].due_on);
+}
+
+#[serial]
+#[tokio::test]
+async fn scheduler_respects_end_condition() {
+    // Arrange - create the user
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-03-15T13:00:00+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
+    let (address, state) = spawn_app();
+    let username = "djacota";
+    let password = "password";
+    let time_zone = "Europe/Bucharest";
+
+    let user = serde_json::json!({
+        "username": username,
+        "password": password,
+        "time_zone": time_zone,
+    });
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/user", &address))
+        .json(&user)
+        .send()
+        .await
+        .expect("Failed to create a new user.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let jwt: Jwt = response.json::<Jwt>().await.unwrap();
+    assert!(!jwt.token.is_empty());
+
+    // Arrange - create the habit
+    let habit = serde_json::json!({"name": "sport", "description": ""});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit", &address))
+        .bearer_auth(&jwt.token)
+        .json(&habit)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    let habit_id = response.json::<HabitDetails>().await.unwrap().id;
+
+    // Arrange - create task def
+    let task_def = serde_json::json!({"name": "running", "description": "Run 10km", "recurrence": {"rec_type": "Days", "every": 7, "from": "2022-03-12T22:00:01+00:00"}, "ends_on": { "type": "Never" }});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit/{}/tasks_defs", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .json(&task_def)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    // Arrange - create another task def
+    let task_def = serde_json::json!({"name": "swimming", "description": "Swim 10km", "recurrence": {"rec_type": "Weeks", "every": 2, "from": "2022-03-05T22:00:02+00:00", "on_week_days" : { "days" : ["Tue", "Sat"]}}, "ends_on": { "type": "After", "value": { "after": 2 } }});
+
+    // Act
+    let response = reqwest::Client::new()
+        .post(&format!("{}/habit/{}/tasks_defs", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .json(&task_def)
+        .send()
+        .await
+        .expect("Failed to create a new habit.");
+
+    // Assert
+    assert!(response.status().is_success());
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(2, tasks.len());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+
+    assert_eq!("swimming", tasks[1].name);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[1].due_on);
+
+    tokio::time::pause();
+
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-03-18T12:00:00+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
+    let _ = timeout(Duration::from_secs(2), start_task_scheduler(state.clone())).await;
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(2, tasks.len());
+
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-03-18T22:00:02+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
+    let _ = timeout(Duration::from_secs(2), start_task_scheduler(state.clone())).await;
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(3, tasks.len());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+
+    assert_eq!("swimming", tasks[1].name);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[1].due_on);
+
+    assert_eq!("swimming", tasks[2].name);
+    assert_eq!("2022-03-18T22:00:02+00:00", tasks[2].due_on);
+
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-03-20T12:00:00+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
+    let _ = timeout(Duration::from_secs(2), start_task_scheduler(state.clone())).await;
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(4, tasks.len());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+
+    assert_eq!("running", tasks[1].name);
+    assert_eq!("2022-03-19T22:00:01+00:00", tasks[1].due_on);
+
+    assert_eq!("swimming", tasks[2].name);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[2].due_on);
+
+    assert_eq!("swimming", tasks[3].name);
+    assert_eq!("2022-03-18T22:00:02+00:00", tasks[3].due_on);
+
+    {
+        let mut date = MOCK_UTC_NOW.lock().unwrap();
+        *date = Some(
+            DateTime::parse_from_rfc3339("2022-04-10T12:00:00+00:00")
+                .unwrap()
+                .to_utc(),
+        );
+    }
+
+    let _ = timeout(Duration::from_secs(2), start_task_scheduler(state.clone())).await;
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(5, tasks.len());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+
+    assert_eq!("running", tasks[1].name);
+    assert_eq!("2022-03-19T22:00:01+00:00", tasks[1].due_on);
+
+    assert_eq!("running", tasks[2].name);
+    assert_eq!("2022-03-26T22:00:01+00:00", tasks[2].due_on);
+
+    assert_eq!("swimming", tasks[3].name);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[3].due_on);
+
+    assert_eq!("swimming", tasks[4].name);
+    assert_eq!("2022-03-18T22:00:02+00:00", tasks[4].due_on);
+
+    let _ = timeout(Duration::from_secs(3602), start_task_scheduler(state)).await;
+
+    // Act - get all tasks for habit
+    let response_tasks_defs = reqwest::Client::new()
+        .get(&format!("{}/habit/{}/tasks", &address, &habit_id))
+        .bearer_auth(&jwt.token)
+        .send()
+        .await
+        .expect("Failed the get all the habits.");
+
+    // Assert
+    assert!(response_tasks_defs.status().is_success());
+    let mut tasks = response_tasks_defs.json::<Vec<Task>>().await.unwrap();
+    tasks.sort_by(|td1, td2| td1.name.cmp(&td2.name).then(td1.due_on.cmp(&td2.due_on)));
+
+    assert_eq!(7, tasks.len());
+    assert_eq!("running", tasks[0].name);
+    assert_eq!("2022-03-12T22:00:01+00:00", tasks[0].due_on);
+
+    assert_eq!("running", tasks[1].name);
+    assert_eq!("2022-03-19T22:00:01+00:00", tasks[1].due_on);
+
+    assert_eq!("running", tasks[2].name);
+    assert_eq!("2022-03-26T22:00:01+00:00", tasks[2].due_on);
+
+    assert_eq!("running", tasks[3].name);
+    assert_eq!("2022-04-02T21:00:01+00:00", tasks[3].due_on);
+
+    assert_eq!("running", tasks[4].name);
+    assert_eq!("2022-04-09T21:00:01+00:00", tasks[4].due_on);
+
+    assert_eq!("swimming", tasks[5].name);
+    assert_eq!("2022-03-14T22:00:02+00:00", tasks[5].due_on);
+
+    assert_eq!("swimming", tasks[6].name);
+    assert_eq!("2022-03-18T22:00:02+00:00", tasks[6].due_on);
 }
 
 static MOCK_UTC_NOW: Mutex<Option<DateTime<Utc>>> = Mutex::new(None);

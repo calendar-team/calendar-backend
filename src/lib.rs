@@ -171,6 +171,8 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             name          TEXT NOT NULL,
             description   TEXT NOT NULL,
             recurrence_id TEXT NOT NULL,
+            ends_on       TEXT NOT NULL,
+            state         TEXT NOT NULL,
             FOREIGN KEY (habit_id) REFERENCES habit (id) ON DELETE CASCADE ON UPDATE CASCADE,
             FOREIGN KEY (recurrence_id) REFERENCES recurrence (id) ON DELETE CASCADE ON UPDATE CASCADE
         )",
@@ -537,7 +539,7 @@ async fn get_tasks_defs(
     }
 
     let tasks_defs: Vec<TaskDef> = conn
-        .prepare("SELECT t.id, t.name, t.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days FROM task_def t JOIN recurrence r ON t.recurrence_id = r.id WHERE t.habit_id = ?1")
+        .prepare("SELECT t.id, t.name, t.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, t.ends_on, t.state FROM task_def t JOIN recurrence r ON t.recurrence_id = r.id WHERE t.habit_id = ?1")
         .unwrap()
         .query_map([&habit_id], |row| {
             Ok(TaskDef{
@@ -550,7 +552,9 @@ async fn get_tasks_defs(
                     from: row.get(5).unwrap(),
                     on_week_days: row.get(6).unwrap(),
                     on_month_days: row.get(7).unwrap(),
-                }
+                },
+                ends_on: row.get(8).unwrap(),
+                state: row.get(9).unwrap(),
             })
         })
         .unwrap()
@@ -657,6 +661,8 @@ async fn create_task_def(
         name: task_def.name,
         description: task_def.description,
         recurrence: task_def.recurrence,
+        ends_on: task_def.ends_on,
+        state: task::TaskDefState::Active,
     };
 
     let result = tx.execute(
@@ -676,8 +682,8 @@ async fn create_task_def(
     }
 
     let result = tx.execute(
-        "INSERT INTO task_def (id, habit_id, name, description, recurrence_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-        (&task_def.id, habit_id, &task_def.name, &task_def.description, recurrence_id.to_string()),
+        "INSERT INTO task_def (id, habit_id, name, description, recurrence_id, ends_on, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        (&task_def.id, habit_id, &task_def.name, &task_def.description, recurrence_id.to_string(), &task_def.ends_on, &task_def.state),
     );
     match result {
         Ok(_) => {
@@ -909,7 +915,7 @@ async fn complete_task(
 
     if !matches!(task.state, TaskState::Done) && !matches!(task.state, TaskState::Cancelled) {
         return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "A task can only be transitioned to `Done` of `Cancelled` states"
+            "A task can only be transitioned to `Done` or `Cancelled` states"
         )));
     }
 

@@ -6,7 +6,7 @@ use tokio::time;
 use uuid::Uuid;
 
 use crate::{
-    task::{Recurrence, TaskDef, TaskState},
+    task::{Recurrence, TaskDef, TaskDefState, TaskState},
     types::{State, UtcNowFn},
     CustomError,
 };
@@ -15,6 +15,7 @@ use crate::{
 struct TaskRec {
     def: TaskDef,
     last_due: Option<String>,
+    count: u32,
     time_zone: String,
 }
 
@@ -34,6 +35,7 @@ pub fn schedule_tasks(
 ) -> std::result::Result<(), CustomError> {
     let now = utc_now();
     let mut last_due: Option<DateTime<Utc>> = None;
+    let mut count = 0;
     loop {
         let next_due = match last_due {
             Some(last_due) => task_def.get_next(last_due.with_timezone(&tz)),
@@ -52,7 +54,31 @@ pub fn schedule_tasks(
                     next_due.to_rfc3339(),
                 ),
             ) {
-                Ok(_) => {}
+                Ok(_) => {
+                    count += 1;
+                    if let crate::task::Ends::After { after } = task_def.ends_on {
+                        if count == after {
+                            info!(
+                                "Finishing task {}({}) because the `after` limit was achieved",
+                                task_def.name, task_def.id
+                            );
+                            match tx.execute(
+                                "UPDATE task_def SET state=?1 WHERE id=?2",
+                                (TaskDefState::Finished, &task_def.id),
+                            ) {
+                                Ok(_) => {
+                                    return Ok(());
+                                }
+                                Err(e) => {
+                                    error!("Error when transitioning task definition in 'Finished': {}", e);
+                                    return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                                        "Error when commiting create task definition transaction"
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                }
                 Err(e) => {
                     error!("Error creating new task: {}", e);
                     return Err(CustomError::UnexpectedError(anyhow::anyhow!(
@@ -69,9 +95,9 @@ pub fn schedule_tasks(
 
 async fn schedule(state: &State) {
     let tasks: Vec<TaskRec> = state.conn.lock().unwrap()
-        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, MAX(t.due_on), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username GROUP BY td.id")
+        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state, MAX(t.due_on), COUNT(t.task_def_id), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username WHERE td.state = ?1 GROUP BY td.id")
         .unwrap()
-        .query_map([], |row| {
+        .query_map([TaskDefState::Active], |row| {
             Ok(TaskRec{
                 def: TaskDef {
                     id: row.get(0).unwrap(),
@@ -84,9 +110,12 @@ async fn schedule(state: &State) {
                         on_week_days: row.get(6).unwrap(),
                         on_month_days: row.get(7).unwrap(),
                     },
+                    ends_on: row.get(8).unwrap(),
+                    state: row.get(9).unwrap(),
                 },
-                last_due: row.get(8).unwrap(),
-                time_zone: row.get(9).unwrap(),
+                last_due: row.get(10).unwrap(),
+                count: row.get(11).unwrap(),
+                time_zone: row.get(12).unwrap(),
             })
         })
         .unwrap()
@@ -116,16 +145,36 @@ async fn schedule(state: &State) {
                 next_due.to_rfc3339(),
             );
             let task_id = Uuid::new_v4();
-            match state.conn.lock().unwrap().execute(
+            let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+            let conn = &mut *stmt_result;
+            match conn.execute(
                 "INSERT INTO task (id, task_def_id, state, due_on) VALUES (?1, ?2, ?3, ?4)",
                 (
                     &task_id.to_string(),
-                    task.def.id,
+                    &task.def.id,
                     TaskState::Pending,
                     next_due.to_rfc3339(),
                 ),
             ) {
-                Ok(_) => {}
+                Ok(_) => {
+                    if let crate::task::Ends::After { after } = task.def.ends_on {
+                        if (task.count + 1) == after {
+                            info!(
+                                "Finishing task {}({}) because the `after` limit was achieved",
+                                task.def.name, task.def.id
+                            );
+                            match conn.execute(
+                                "UPDATE task_def SET state=?1 WHERE id=?2",
+                                (TaskDefState::Finished, &task.def.id),
+                            ) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    error!("Error when transitioning task definition in 'Finished': {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
                 Err(e) => {
                     error!("Error creating new task: {}", e);
                 }

@@ -37,6 +37,26 @@ pub enum WeekDay {
     Sun,
 }
 
+#[derive(Debug, Serialize, Deserialize, Hash, Eq, PartialEq, Clone)]
+#[serde(tag = "type", content = "value")]
+pub enum Ends {
+    Never,
+    After { after: u32 },
+}
+
+impl rusqlite::ToSql for Ends {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+    }
+}
+
+impl rusqlite::types::FromSql for Ends {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let rec: Ends = serde_json::from_str(value.as_str()?).unwrap();
+        Ok(rec)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct WeekDays {
     pub days: HashSet<WeekDay>,
@@ -87,6 +107,26 @@ pub struct TaskDefInput {
     pub name: String,
     pub description: String,
     pub recurrence: Recurrence,
+    pub ends_on: Ends,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TaskDefState {
+    Active,
+    Finished,
+}
+
+impl rusqlite::ToSql for TaskDefState {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(serde_json::to_string(self).unwrap()))
+    }
+}
+
+impl rusqlite::types::FromSql for TaskDefState {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let rec: TaskDefState = serde_json::from_str(value.as_str()?).unwrap();
+        Ok(rec)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +135,8 @@ pub struct TaskDef {
     pub name: String,
     pub description: String,
     pub recurrence: Recurrence,
+    pub ends_on: Ends,
+    pub state: TaskDefState,
 }
 
 impl TaskDef {
@@ -331,6 +373,8 @@ mod tests {
                 on_week_days: None,
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -372,6 +416,8 @@ mod tests {
                 on_week_days: None,
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -415,6 +461,8 @@ mod tests {
                 }),
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -458,6 +506,8 @@ mod tests {
                 }),
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -501,6 +551,8 @@ mod tests {
                     days: HashSet::from([31]),
                 }),
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -544,6 +596,8 @@ mod tests {
                     days: HashSet::from([30, 31]),
                 }),
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -601,6 +655,8 @@ mod tests {
                 on_week_days: None,
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
@@ -658,6 +714,8 @@ mod tests {
                 on_week_days: None,
                 on_month_days: None,
             },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
         };
 
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
