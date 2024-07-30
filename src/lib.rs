@@ -246,7 +246,7 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
     });
 
     if env::var("CALENDAR_IS_PROD_ENV").is_ok() {
-        server = server.listen_rustls_0_22(tcp_listener, load_rustls_config())?;
+        server = server.listen_rustls_0_23(tcp_listener, load_rustls_config())?;
     } else {
         server = server.listen(tcp_listener)?;
     }
