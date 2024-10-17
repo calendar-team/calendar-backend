@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: calendar-backend
+  name: calendar-backend
+  namespace: calendar-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calendar-backend
+  template:
+    metadata:
+      labels:
+        app: calendar-backend
+    spec:
+      containers:
+      - image: ghcr.io/calendar-team/calendar-backend
+        name: calendar-backend
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /calendar/db/
+          name: calendar-backend-db
+        env:
+        - name: CALENDAR_IS_PROD_ENV
+          value: 1
+        - name: CALENDAR_JWT_SIGNING_KEY
+          valueFrom:
+            secretKeyRef:
+              name: jwt-key
+              key: jwt-key
+      volumes:
+      - persistentVolumeClaim:
+          claimName: calendar-backend-db
+        name: calendar-backend-db
+      imagePullSecrets:
+      - name: ghcr-secret
+

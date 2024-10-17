@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    external-dns.alpha.kubernetes.io/target: aguzovatii.com
+    cert-manager.io/cluster-issuer: letsencrypt-cluster-issuer
+  name: calendar-backend
+  namespace: calendar-backend
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: calendar-backend.aguzovatii.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: calendar-backend
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - calendar-backend.aguzovatii.com
+    secretName: calendar-backend-tls-cert
+

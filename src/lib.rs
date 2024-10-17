@@ -25,13 +25,11 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use log::{error, info};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
-use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::time::Duration;
-use std::{fs::File, io::BufReader};
 use types::State;
 use types::UtcNowFn;
 use uuid::Uuid;
@@ -245,11 +243,7 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             .service(complete_task)
     });
 
-    if env::var("CALENDAR_IS_PROD_ENV").is_ok() {
-        server = server.listen_rustls_0_23(tcp_listener, load_rustls_config())?;
-    } else {
-        server = server.listen(tcp_listener)?;
-    }
+    server = server.listen(tcp_listener)?;
 
     Ok(server.run())
 }
@@ -1029,25 +1023,6 @@ fn generate_jwt(username: String, utc_now: UtcNowFn) -> Result<String, CustomErr
     };
 
     Ok(token)
-}
-
-fn load_rustls_config() -> ServerConfig {
-    let cert_file = &mut BufReader::new(
-        File::open("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/fullchain.pem").unwrap(),
-    );
-    let key_file = &mut BufReader::new(
-        File::open("/etc/letsencrypt/live/backend.calendar.aguzovatii.com/privkey.pem").unwrap(),
-    );
-
-    let certs = rustls_pemfile::certs(cert_file)
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let private_key = rustls_pemfile::private_key(key_file).unwrap().unwrap();
-
-    rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, private_key)
-        .unwrap()
 }
 
 fn authenticate(headers: &HeaderMap, utc_now: UtcNowFn) -> Result<String, anyhow::Error> {
