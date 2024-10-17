@@ -74,5 +74,5 @@ jobs:
             k8s/service.yaml
             k8s/ingress.yaml
           images: |
-            ghcr.io/banking-engine/be-backend:${{ github.sha }}
+            ghcr.io/calendar-engine/calendar-backend:${{ github.sha }}
 
