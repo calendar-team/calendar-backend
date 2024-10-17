@@ -67,7 +67,7 @@ jobs:
       - name: Deploy to the K8S cluster
         uses: azure/k8s-deploy@v5
         with:
-          namespace: calenar-backend
+          namespace: calendar-backend
           manifests: |
             k8s/pvc.yaml
             k8s/deployment.yaml
