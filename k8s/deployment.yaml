@@ -26,7 +26,7 @@ spec:
           name: calendar-backend-db
         env:
         - name: CALENDAR_IS_PROD_ENV
-          value: 1
+          value: "1"
         - name: CALENDAR_JWT_SIGNING_KEY
           valueFrom:
             secretKeyRef:
