@@ -50,7 +50,7 @@ jobs:
       - name: Create container-registry secret
         uses: azure/k8s-create-secret@v5
         with:
-           namespace: calenar-backend
+           namespace: calendar-backend
            secret-name: ghcr-secret
            container-registry-url: ${{ secrets.CONTAINER_REGISTRY_URL }}
            container-registry-username: ${{ secrets.CONTAINER_REGISTRY_USER }}
