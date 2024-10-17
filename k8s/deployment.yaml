@@ -32,6 +32,8 @@ spec:
             secretKeyRef:
               name: jwt-key
               key: jwt-key
+        - name: CALENDAR_DB_PATH
+          value: /calendar/db/database.db3
       volumes:
       - persistentVolumeClaim:
           claimName: calendar-backend-db
