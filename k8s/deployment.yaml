@@ -36,7 +36,7 @@ spec:
           value: /calendar/db/database.db3
       - image: ghcr.io/calendar-team/sqlite-to-r2
         name: db-backup
-        port:
+        ports:
         - containerPort: 3333
           protocol: TCP
         volumeMounts:
