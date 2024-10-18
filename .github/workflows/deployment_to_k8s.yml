@@ -24,7 +24,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/calendar-team/calendar-backend:${{ github.sha }}
+          tags: ${{ secrets.CONTAINER_REGISTRY_URL }}/calendar-team/calendar-backend:${{ github.sha }}
 
   deploy:
     name: Deploy to K8S
@@ -74,5 +74,5 @@ jobs:
             k8s/service.yaml
             k8s/ingress.yaml
           images: |
-            ghcr.io/calendar-team/calendar-backend:${{ github.sha }}
+            ${{ secrets.CONTAINER_REGISTRY_URL }}/calendar-team/calendar-backend:${{ github.sha }}
 
