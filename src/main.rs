@@ -1,6 +1,7 @@
 use chrono::Utc;
 use rusqlite::Connection;
 use std::{
+    env,
     net::TcpListener,
     sync::{Arc, Mutex},
 };
@@ -8,7 +9,7 @@ use tokio::select;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let db_path = "./database.db3";
+    let db_path = env::var("CALENDAR_DB_PATH").unwrap_or("./database.db3".to_string());
     let conn = Connection::open(db_path).unwrap();
     let state = calendar_backend_lib::types::State {
         conn: Arc::new(Mutex::new(conn)),
