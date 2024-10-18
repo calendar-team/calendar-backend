@@ -26,7 +26,7 @@ Before the first deployment, a few secrets should be added on the repo:
     "bucket-name": "",
     "account-id": "",
     "access-key-id": "",
-    "access-key-secret": "",
+    "access-key-secret": ""
 }
 ```
 Details about each field cand be found in the [sqlite-to-r2](https://github.com/calendar-team/sqlite-to-r2) repo.
