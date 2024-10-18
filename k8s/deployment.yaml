@@ -34,6 +34,38 @@ spec:
               key: jwt-key
         - name: CALENDAR_DB_PATH
           value: /calendar/db/database.db3
+      - image: ghcr.io/calendar-team/sqlite-to-r2
+        name: db-backup
+        port:
+        - containerPort: 3333
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /calendar/db/
+          name: calendar-backend-db
+          readOnly: true
+        env:
+        - name: BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: db-backup
+              key: bucket-name
+        - name: ACCOUNT_ID
+          valueFrom:
+            secretKeyRef:
+              name: db-backup
+              key: account-id
+        - name: ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: db-backup
+              key: access-key-id
+        - name: ACCESS_KEY_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: db-backup
+              key: access-key-secret
+        - name: DB_FILE_PATH
+          value: /calendar/db/database.db3
       volumes:
       - persistentVolumeClaim:
           claimName: calendar-backend-db

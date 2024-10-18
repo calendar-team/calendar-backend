@@ -64,6 +64,14 @@ jobs:
            secret-type: generic
            string-data: ${{ secrets.JWT_KEY }}
 
+      - name: Create secret with R2 credentials
+        uses: azure/k8s-create-secret@v5
+        with:
+           namespace: calendar-backend
+           secret-name: db-backup
+           secret-type: generic
+           string-data: ${{ secrets.R2_CREDENTIALS }}
+
       - name: Deploy to the K8S cluster
         uses: azure/k8s-deploy@v5
         with:
