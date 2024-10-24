@@ -31,7 +31,7 @@ Before the first deployment, a few secrets should be added on the repo:
        ```
        kubectl get secret continuous-deployment -oyaml
        ```
-5. `R2_CREDENTIALS` - the credentials for uploading db backup to R2. The format should be:
+4. `R2_CREDENTIALS` - the credentials for uploading db backup to R2. The format should be:
     ```
     {
         "bucket-name": "",
