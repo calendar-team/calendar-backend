@@ -1,6 +1,6 @@
 # calendar-backend
 
-The backend for the [calendar](calendar.aguzovatii.com).
+The backend for the [calendar](https://calendar.aguzovatii.com).
 
 ## Getting started
 
