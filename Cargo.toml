@@ -23,7 +23,7 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1.41.0", features = ["macros", "rt-multi-thread", "test-util"] }
 secrecy = { version = "0.10" }
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 regex = "1.11.1"
 argon2 = { version = "0.5.3", features = ["std"] }
 rand = "0.8.4"
