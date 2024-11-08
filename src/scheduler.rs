@@ -12,11 +12,11 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct TaskRec {
-    def: TaskDef,
-    last_due: Option<String>,
-    count: u32,
-    time_zone: String,
+pub struct TaskRec {
+    pub def: TaskDef,
+    pub last_due: Option<String>,
+    pub count: u32,
+    pub time_zone: String,
 }
 
 pub async fn start_task_scheduler(state: State) {

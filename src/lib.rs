@@ -27,12 +27,14 @@ use regex::Regex;
 use rusqlite::types::Value;
 use rusqlite::Error;
 use rusqlite::{Connection, OptionalExtension};
+use scheduler::TaskRec;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::rc::Rc;
 use std::time::Duration;
+use task::TaskDefState;
 use types::State;
 use types::UtcNowFn;
 use uuid::Uuid;
@@ -871,9 +873,14 @@ async fn get_all_tasks(
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
+    // TODO: validate that date has correct format
     let date = path.into_inner();
+
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
-    info!("Get all tasks for user = {}", username);
+    info!(
+        "Get all tasks that are due on {} for user `{}`",
+        date, username
+    );
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -886,34 +893,72 @@ async fn get_all_tasks(
         .query_map(&[(":user", &username)], |row| row.get(0))
         .unwrap();
 
-    let values = Rc::new(
+    let habits = Rc::new(
         rows.into_iter()
             .map(|v: Result<String, Error>| v.unwrap())
             .map(Value::from)
             .collect::<Vec<Value>>(),
     );
 
-    if values.is_empty() {
-        return Err(CustomError::NotFound(anyhow::anyhow!("User has no habits")));
+    if habits.is_empty() {
+        return Ok(HttpResponse::Ok().json([0; 0]));
     }
 
-    let tasks: Vec<Task> = conn
-        .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id IN rarray(?1)")
+    // get all task definitions from db
+    info!("Habits: {:?}", habits);
+
+    let tasks: Vec<TaskRec> = conn
+        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state, MAX(t.due_on), COUNT(t.task_def_id), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username WHERE td.state = ?1 AND h.id IN rarray(?2) GROUP BY td.id")
         .unwrap()
-        .query_map([values], |row| {
-            Ok(Task{
-                id: row.get(0).unwrap(),
-                name: row.get(1).unwrap(),
-                state: row.get(2).unwrap(),
-                due_on: row.get(3).unwrap(),
-                done_on: row.get(4).unwrap(),
+        .query_map((TaskDefState::Active, habits), |row| {
+            Ok(TaskRec{
+                def: TaskDef {
+                    id: row.get(0).unwrap(),
+                    name: row.get(1).unwrap(),
+                    description: row.get(2).unwrap(),
+                    recurrence: Recurrence {
+                        rec_type: row.get(3).unwrap(),
+                        every: row.get(4).unwrap(),
+                        from: row.get(5).unwrap(),
+                        on_week_days: row.get(6).unwrap(),
+                        on_month_days: row.get(7).unwrap(),
+                    },
+                    ends_on: row.get(8).unwrap(),
+                    state: row.get(9).unwrap(),
+                },
+                last_due: row.get(10).unwrap(),
+                count: row.get(11).unwrap(),
+                time_zone: row.get(12).unwrap(),
             })
         })
         .unwrap()
         .map(|row| row.unwrap())
-    .collect();
+        .collect();
 
-    Ok(HttpResponse::Ok().json(tasks))
+    info!("Finished");
+    info!("Tasks: {:?}", tasks);
+
+    // generate all tasks for given date and vec of habits
+
+    // cross check with database, some tasks might be already done
+
+    // let tasks: Vec<Task> = conn
+    //     .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id IN rarray(?1)")
+    //     .unwrap()
+    //     .query_map([values], |row| {
+    //         Ok(Task{
+    //             id: row.get(0).unwrap(),
+    //             name: row.get(1).unwrap(),
+    //             state: row.get(2).unwrap(),
+    //             due_on: row.get(3).unwrap(),
+    //             done_on: row.get(4).unwrap(),
+    //         })
+    //     })
+    //     .unwrap()
+    //     .map(|row| row.unwrap())
+    // .collect();
+
+    Ok(HttpResponse::Ok().into())
 }
 
 #[put("/tasks/{task_id}")]
