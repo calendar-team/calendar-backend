@@ -21,6 +21,11 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::DateTime;
+use chrono::NaiveDate;
+use chrono::NaiveTime;
+use chrono::Utc;
+use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
@@ -34,6 +39,7 @@ use std::fmt::Debug;
 use std::net::TcpListener;
 use std::rc::Rc;
 use std::time::Duration;
+use task::Ends;
 use task::TaskDefState;
 use types::State;
 use types::UtcNowFn;
@@ -908,9 +914,9 @@ async fn get_all_tasks(
     info!("Habits: {:?}", habits);
 
     let tasks: Vec<TaskRec> = conn
-        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state, MAX(t.due_on), COUNT(t.task_def_id), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username WHERE td.state = ?1 AND h.id IN rarray(?2) GROUP BY td.id")
+        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state, MAX(t.due_on), COUNT(t.task_def_id), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username WHERE h.id IN rarray(?1) GROUP BY td.id")
         .unwrap()
-        .query_map((TaskDefState::Active, habits), |row| {
+        .query_map([habits], |row| {
             Ok(TaskRec{
                 def: TaskDef {
                     id: row.get(0).unwrap(),
@@ -935,8 +941,23 @@ async fn get_all_tasks(
         .map(|row| row.unwrap())
         .collect();
 
+    let res: Vec<&TaskRec> = tasks
+        .iter()
+        .filter(|t| {
+            let tz = t.time_zone.parse().unwrap();
+            let date = NaiveDate::parse_from_str(&date, "%d-%m-%Y")
+                .unwrap()
+                .and_time(NaiveTime::default())
+                .and_local_timezone(tz)
+                .unwrap()
+                .to_utc();
+
+            return get_task_for(&t.def, tz, date);
+        })
+        .collect();
+
     info!("Finished");
-    info!("Tasks: {:?}", tasks);
+    info!("res: {:?}", res);
 
     // generate all tasks for given date and vec of habits
 
@@ -959,6 +980,37 @@ async fn get_all_tasks(
     // .collect();
 
     Ok(HttpResponse::Ok().into())
+}
+
+pub fn get_task_for(task_def: &TaskDef, tz: Tz, date: DateTime<Utc>) -> bool {
+    let mut count = 0;
+    let mut last_due: Option<DateTime<Utc>> = None;
+    info!("ajuns");
+    loop {
+        let next_due = match last_due {
+            Some(last_due) => task_def.get_next(last_due.with_timezone(&tz)),
+            None => task_def.get_first(&tz),
+        }
+        .to_utc();
+
+        info!(
+            "Task ({}), next_due={}, last_due={:?}, count={}",
+            task_def.name, next_due, last_due, count
+        );
+
+        if next_due < date {
+            count += 1;
+            if let crate::task::Ends::After { after } = task_def.ends_on {
+                if count == after {
+                    return false;
+                }
+            };
+            last_due = Some(next_due);
+        } else {
+            info!("compare: {} == {} = {}", next_due, date, next_due == date);
+            return next_due == date;
+        }
+    }
 }
 
 #[put("/tasks/{task_id}")]
