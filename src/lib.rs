@@ -865,11 +865,13 @@ async fn get_tasks(
     Ok(HttpResponse::Ok().json(tasks))
 }
 
-#[get("/tasks")]
+#[get("/tasks/{date}")]
 async fn get_all_tasks(
     req: HttpRequest,
+    path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
+    let date = path.into_inner();
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!("Get all tasks for user = {}", username);
 
