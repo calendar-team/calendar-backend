@@ -24,11 +24,14 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
+use rusqlite::types::Value;
+use rusqlite::Error;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
+use std::rc::Rc;
 use std::time::Duration;
 use types::State;
 use types::UtcNowFn;
@@ -240,7 +243,8 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             .service(create_task_def)
             .service(delete_task_def)
             .service(get_tasks)
-            .service(complete_task)
+            .service(get_all_tasks)
+            .service(update_task)
     });
 
     server = server.listen(tcp_listener)?;
@@ -861,14 +865,63 @@ async fn get_tasks(
     Ok(HttpResponse::Ok().json(tasks))
 }
 
-#[put("/habit/{habit_id}/tasks/{task_id}")]
-async fn complete_task(
+#[get("/tasks")]
+async fn get_all_tasks(
     req: HttpRequest,
-    path: web::Path<(String, String)>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+    info!("Get all tasks for user = {}", username);
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let mut stmt = conn
+        .prepare("SELECT id FROM habit WHERE username=:user")
+        .unwrap();
+
+    let rows = stmt
+        .query_map(&[(":user", &username)], |row| row.get(0))
+        .unwrap();
+
+    let values = Rc::new(
+        rows.into_iter()
+            .map(|v: Result<String, Error>| v.unwrap())
+            .map(Value::from)
+            .collect::<Vec<Value>>(),
+    );
+
+    if values.is_empty() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("User has no habits")));
+    }
+
+    let tasks: Vec<Task> = conn
+        .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id IN rarray(?1)")
+        .unwrap()
+        .query_map([values], |row| {
+            Ok(Task{
+                id: row.get(0).unwrap(),
+                name: row.get(1).unwrap(),
+                state: row.get(2).unwrap(),
+                due_on: row.get(3).unwrap(),
+                done_on: row.get(4).unwrap(),
+            })
+        })
+        .unwrap()
+        .map(|row| row.unwrap())
+    .collect();
+
+    Ok(HttpResponse::Ok().json(tasks))
+}
+
+#[put("/tasks/{task_id}")]
+async fn update_task(
+    req: HttpRequest,
+    path: web::Path<String>,
     task: web::Json<TaskInput>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
-    let (habit_id, task_id) = path.into_inner();
+    let task_id = path.into_inner();
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!("Update task");
 
@@ -876,8 +929,8 @@ async fn complete_task(
 
     let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.id=?1 AND h.username=?2 AND t.id=?3",
-            (&habit_id, &username, &task_id),
+            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.username=?1 AND t.id=?2",
+            (&username, &task_id),
             |row| row.get(0),
         )
         .optional()
@@ -901,22 +954,17 @@ async fn complete_task(
         })
         .unwrap();
 
-    if !matches!(db_task.state, TaskState::Pending) {
-        return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "Only tasks in Pending state can be changed"
-        )));
-    }
+    let result = match task.state {
+        TaskState::Pending => conn.execute(
+            "UPDATE task SET state=?1, done_on=NULL WHERE id=?2",
+            (&task.state, &task_id),
+        ),
 
-    if !matches!(task.state, TaskState::Done) && !matches!(task.state, TaskState::Cancelled) {
-        return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "A task can only be transitioned to `Done` or `Cancelled` states"
-        )));
-    }
-
-    let result = conn.execute(
-        "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
-        (&task.state, db_task.due_on, &task_id),
-    );
+        TaskState::Done | TaskState::Cancelled => conn.execute(
+            "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
+            (&task.state, db_task.due_on, &task_id),
+        ),
+    };
 
     match result {
         Ok(updated) => {
