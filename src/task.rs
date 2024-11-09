@@ -378,6 +378,7 @@ impl rusqlite::ToSql for TaskState {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
+    pub task_def_id: String,
     pub name: String,
     pub state: TaskState,
     pub due_on: String,

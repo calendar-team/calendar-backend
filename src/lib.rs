@@ -850,15 +850,16 @@ async fn get_tasks(
     }
 
     let tasks: Vec<Task> = conn
-        .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id=?1")
+        .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id=?1")
         .unwrap()
         .query_map([&habit_id], |row| {
             Ok(Task{
                 id: row.get(0).unwrap(),
-                name: row.get(1).unwrap(),
-                state: row.get(2).unwrap(),
-                due_on: row.get(3).unwrap(),
-                done_on: row.get(4).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
             })
         })
         .unwrap()
@@ -957,28 +958,32 @@ async fn get_all_tasks(
 
     let res: Vec<&TaskDef> = tasks.iter().filter(|t| t.get_task_for(&tz, date)).collect();
 
+    let task_defs = Rc::new(
+        res.into_iter()
+            .map(|v: &TaskDef| v.id.clone())
+            .map(Value::from)
+            .collect::<Vec<Value>>(),
+    );
+
+    let tasks: Vec<Task> = conn
+    .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id=td.id WHERE task_def_id IN rarray(?1) AND due_on=?2")
+    .unwrap()
+    .query_map((task_defs, date.to_rfc3339()), |row| {
+        Ok(Task {
+                id: row.get(0).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
+            },)
+    })
+    .unwrap()
+    .map(|row| row.unwrap())
+    .collect();
+
     info!("Finished");
-    info!("res: {:?}", res);
-
-    // generate all tasks for given date and vec of habits
-
-    // cross check with database, some tasks might be already done
-
-    // let tasks: Vec<Task> = conn
-    //     .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id IN rarray(?1)")
-    //     .unwrap()
-    //     .query_map([values], |row| {
-    //         Ok(Task{
-    //             id: row.get(0).unwrap(),
-    //             name: row.get(1).unwrap(),
-    //             state: row.get(2).unwrap(),
-    //             due_on: row.get(3).unwrap(),
-    //             done_on: row.get(4).unwrap(),
-    //         })
-    //     })
-    //     .unwrap()
-    //     .map(|row| row.unwrap())
-    // .collect();
+    info!("res: {:?}", tasks);
 
     Ok(HttpResponse::Ok().into())
 }
@@ -1015,6 +1020,7 @@ async fn update_task(
         .query_row([&task_id], |row| {
             Ok(Task {
                 id: row.get(0).unwrap(),
+                task_def_id: "".to_string(),
                 name: "".to_string(),
                 state: row.get(1).unwrap(),
                 due_on: row.get(2).unwrap(),
