@@ -21,10 +21,8 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use chrono::DateTime;
 use chrono::NaiveDate;
 use chrono::NaiveTime;
-use chrono::Utc;
 use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
@@ -32,15 +30,12 @@ use regex::Regex;
 use rusqlite::types::Value;
 use rusqlite::Error;
 use rusqlite::{Connection, OptionalExtension};
-use scheduler::TaskRec;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
 use std::rc::Rc;
 use std::time::Duration;
-use task::Ends;
-use task::TaskDefState;
 use types::State;
 use types::UtcNowFn;
 use uuid::Uuid;
@@ -891,6 +886,33 @@ async fn get_all_tasks(
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
 
+    let tz: Tz = conn
+        .query_row(
+            "SELECT time_zone FROM user WHERE username=?1",
+            [&username],
+            |row| {
+                let t: String = row.get(0).unwrap();
+                let tz: Tz = t.parse().unwrap();
+                Ok(tz)
+            },
+        )
+        .unwrap();
+
+    let date = NaiveDate::parse_from_str(&date, "%d-%m-%Y");
+
+    if date.is_err() {
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "`date` path param is not valid. Use the format: `%d-%m-%Y`"
+        )));
+    }
+
+    let date = date
+        .unwrap()
+        .and_time(NaiveTime::default())
+        .and_local_timezone(tz)
+        .unwrap()
+        .to_utc();
+
     let mut stmt = conn
         .prepare("SELECT id FROM habit WHERE username=:user")
         .unwrap();
@@ -910,15 +932,11 @@ async fn get_all_tasks(
         return Ok(HttpResponse::Ok().json([0; 0]));
     }
 
-    // get all task definitions from db
-    info!("Habits: {:?}", habits);
-
-    let tasks: Vec<TaskRec> = conn
-        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state, MAX(t.due_on), COUNT(t.task_def_id), u.time_zone FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id LEFT JOIN task t ON td.id = t.task_def_id JOIN habit h ON td.habit_id = h.id JOIN user u ON h.username = u.username WHERE h.id IN rarray(?1) GROUP BY td.id")
+    let tasks: Vec<TaskDef> = conn
+        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id JOIN habit h ON td.habit_id = h.id WHERE h.id IN rarray(?1)")
         .unwrap()
         .query_map([habits], |row| {
-            Ok(TaskRec{
-                def: TaskDef {
+            Ok(TaskDef {
                     id: row.get(0).unwrap(),
                     name: row.get(1).unwrap(),
                     description: row.get(2).unwrap(),
@@ -931,30 +949,13 @@ async fn get_all_tasks(
                     },
                     ends_on: row.get(8).unwrap(),
                     state: row.get(9).unwrap(),
-                },
-                last_due: row.get(10).unwrap(),
-                count: row.get(11).unwrap(),
-                time_zone: row.get(12).unwrap(),
-            })
+                },)
         })
         .unwrap()
         .map(|row| row.unwrap())
         .collect();
 
-    let res: Vec<&TaskRec> = tasks
-        .iter()
-        .filter(|t| {
-            let tz = t.time_zone.parse().unwrap();
-            let date = NaiveDate::parse_from_str(&date, "%d-%m-%Y")
-                .unwrap()
-                .and_time(NaiveTime::default())
-                .and_local_timezone(tz)
-                .unwrap()
-                .to_utc();
-
-            return get_task_for(&t.def, tz, date);
-        })
-        .collect();
+    let res: Vec<&TaskDef> = tasks.iter().filter(|t| t.get_task_for(&tz, date)).collect();
 
     info!("Finished");
     info!("res: {:?}", res);
@@ -980,37 +981,6 @@ async fn get_all_tasks(
     // .collect();
 
     Ok(HttpResponse::Ok().into())
-}
-
-pub fn get_task_for(task_def: &TaskDef, tz: Tz, date: DateTime<Utc>) -> bool {
-    let mut count = 0;
-    let mut last_due: Option<DateTime<Utc>> = None;
-    info!("ajuns");
-    loop {
-        let next_due = match last_due {
-            Some(last_due) => task_def.get_next(last_due.with_timezone(&tz)),
-            None => task_def.get_first(&tz),
-        }
-        .to_utc();
-
-        info!(
-            "Task ({}), next_due={}, last_due={:?}, count={}",
-            task_def.name, next_due, last_due, count
-        );
-
-        if next_due < date {
-            count += 1;
-            if let crate::task::Ends::After { after } = task_def.ends_on {
-                if count == after {
-                    return false;
-                }
-            };
-            last_due = Some(next_due);
-        } else {
-            info!("compare: {} == {} = {}", next_due, date, next_due == date);
-            return next_due == date;
-        }
-    }
 }
 
 #[put("/tasks/{task_id}")]

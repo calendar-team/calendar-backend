@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Datelike, Days, Months, Utc};
 use chrono_tz::Tz;
+use log::info;
 use rusqlite::types::{FromSqlResult, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
@@ -318,6 +319,38 @@ impl TaskDef {
             }
 
             RecurrenceType::Years => from,
+        }
+    }
+
+    /// Returns the boolean indicating whether there should be a task on given date
+    pub(crate) fn get_task_for(&self, tz: &Tz, date: DateTime<Utc>) -> bool {
+        let mut count = 0;
+        let mut last_due: Option<DateTime<Utc>> = None;
+        info!("ajuns");
+        loop {
+            let next_due = match last_due {
+                Some(last_due) => self.get_next(last_due.with_timezone(&tz)),
+                None => self.get_first(&tz),
+            }
+            .to_utc();
+
+            info!(
+                "Task ({}), next_due={}, last_due={:?}, count={}",
+                self.name, next_due, last_due, count
+            );
+
+            if next_due < date {
+                count += 1;
+                if let crate::task::Ends::After { after } = self.ends_on {
+                    if count == after {
+                        return false;
+                    }
+                };
+                last_due = Some(next_due);
+            } else {
+                info!("compare: {} == {} = {}", next_due, date, next_due == date);
+                return next_due == date;
+            }
         }
     }
 }
