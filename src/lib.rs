@@ -31,6 +31,7 @@ use rusqlite::types::Value;
 use rusqlite::Error;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
@@ -875,14 +876,9 @@ async fn get_all_tasks(
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
-    // TODO: validate that date has correct format
     let date = path.into_inner();
 
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
-    info!(
-        "Get all tasks that are due on {} for user `{}`",
-        date, username
-    );
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
@@ -913,6 +909,11 @@ async fn get_all_tasks(
         .and_local_timezone(tz)
         .unwrap()
         .to_utc();
+
+    info!(
+        "Get all tasks that are due on {} for user `{}`",
+        date, username
+    );
 
     let mut stmt = conn
         .prepare("SELECT id FROM habit WHERE username=:user")
@@ -956,19 +957,25 @@ async fn get_all_tasks(
         .map(|row| row.unwrap())
         .collect();
 
-    let res: Vec<&TaskDef> = tasks.iter().filter(|t| t.get_task_for(&tz, date)).collect();
+    let task_defs: Vec<(String, String)> = tasks
+        .iter()
+        .filter(|t| t.get_task_for(&tz, date))
+        .map(|t| (t.id.clone(), t.name.clone()))
+        .collect();
 
-    let task_defs = Rc::new(
-        res.into_iter()
-            .map(|v: &TaskDef| v.id.clone())
+    let task_def_ids = Rc::new(
+        task_defs
+            .clone()
+            .into_iter()
+            .map(|t| t.0)
             .map(Value::from)
             .collect::<Vec<Value>>(),
     );
 
-    let tasks: Vec<Task> = conn
+    let mut tasks: Vec<Task> = conn
     .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id=td.id WHERE task_def_id IN rarray(?1) AND due_on=?2")
     .unwrap()
-    .query_map((task_defs, date.to_rfc3339()), |row| {
+    .query_map((task_def_ids, date.to_rfc3339()), |row| {
         Ok(Task {
                 id: row.get(0).unwrap(),
                 task_def_id: row.get(1).unwrap(),
@@ -982,10 +989,27 @@ async fn get_all_tasks(
     .map(|row| row.unwrap())
     .collect();
 
-    info!("Finished");
-    info!("res: {:?}", tasks);
+    let existing_tasks: HashSet<(String, String)> = tasks
+        .iter()
+        .map(|t| (t.task_def_id.clone(), t.name.clone()))
+        .collect();
 
-    Ok(HttpResponse::Ok().into())
+    let missing_tasks: Vec<Task> = task_defs
+        .iter()
+        .filter(|td| !existing_tasks.contains(td))
+        .map(|t| Task {
+            id: Uuid::new_v4().to_string(),
+            task_def_id: t.0.to_string(),
+            name: t.1.to_string(),
+            state: TaskState::Pending,
+            due_on: date.to_rfc3339(),
+            done_on: None,
+        })
+        .collect();
+
+    tasks.extend(missing_tasks);
+
+    Ok(HttpResponse::Ok().json(tasks))
 }
 
 #[put("/tasks/{task_id}")]
