@@ -876,8 +876,6 @@ async fn get_all_tasks(
     path: web::Path<String>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
-    let date = path.into_inner();
-
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
@@ -887,28 +885,19 @@ async fn get_all_tasks(
         .query_row(
             "SELECT time_zone FROM user WHERE username=?1",
             [&username],
-            |row| {
-                let t: String = row.get(0).unwrap();
-                let tz: Tz = t.parse().unwrap();
-                Ok(tz)
-            },
+            |row| Ok(row.get::<usize, String>(0).unwrap().parse().unwrap()),
         )
         .unwrap();
 
-    let date = NaiveDate::parse_from_str(&date, "%d-%m-%Y");
+    let date = NaiveDate::parse_from_str(&path.into_inner(), "%d-%m-%Y");
 
     if date.is_err() {
         return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "`date` path param is not valid. Use the format: `%d-%m-%Y`"
+            "`date` path param is not valid. Use the format: `%d-%m-%Y` (e.g.: 21-11-2024)"
         )));
     }
 
-    let date = date
-        .unwrap()
-        .and_time(NaiveTime::default())
-        .and_local_timezone(tz)
-        .unwrap()
-        .to_utc();
+    let date = date.unwrap();
 
     info!(
         "Get all tasks that are due on {} for user `{}`",
@@ -959,8 +948,8 @@ async fn get_all_tasks(
 
     let task_defs: Vec<(String, String)> = tasks
         .iter()
-        .filter(|t| t.get_task_for(&tz, date))
-        .map(|t| (t.id.clone(), t.name.clone()))
+        .filter(|td| td.has_task_on(date, tz))
+        .map(|td| (td.id.clone(), td.name.clone()))
         .collect();
 
     let task_def_ids = Rc::new(
@@ -971,6 +960,12 @@ async fn get_all_tasks(
             .map(Value::from)
             .collect::<Vec<Value>>(),
     );
+
+    let date = date
+        .and_time(NaiveTime::default())
+        .and_local_timezone(tz)
+        .unwrap()
+        .to_utc();
 
     let mut tasks: Vec<Task> = conn
     .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id=td.id WHERE task_def_id IN rarray(?1) AND due_on=?2")
