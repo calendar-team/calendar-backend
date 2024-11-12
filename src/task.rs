@@ -404,7 +404,15 @@ impl TaskDef {
 
                 let delta_weeks = (monday_of_date - monday_of_first_due).num_weeks() as u32;
 
-                delta_weeks % self.recurrence.every == 0 && on_days.contains(&date_weekday)
+                delta_weeks % self.recurrence.every == 0 && on_days.contains(&date_weekday)                    
+                 && match self.ends_on {
+                    Ends::Never => true,
+                    Ends::After { after } => {
+
+                        
+                        return false;
+                    },
+                }
             }
 
             RecurrenceType::Months => {
@@ -871,7 +879,7 @@ mod tests {
     fn date_before_first_due_has_no_task() {
         let task_def = TaskDef {
             id: "abc".to_string(),
-            name: "Every 5 years on 25th of March task".to_string(),
+            name: "def".to_string(),
             description: "".to_string(),
             recurrence: Recurrence {
                 rec_type: RecurrenceType::Days,
@@ -895,7 +903,7 @@ mod tests {
     fn date_equal_to_first_due_has_a_task() {
         let task_def = TaskDef {
             id: "abc".to_string(),
-            name: "Every 5 years on 25th of March task".to_string(),
+            name: "def".to_string(),
             description: "".to_string(),
             recurrence: Recurrence {
                 rec_type: RecurrenceType::Days,
@@ -913,5 +921,245 @@ mod tests {
         let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
         let has_task = task_def.has_task_on_2(date, &tz);
         assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_a_task() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-29", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 3,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-29", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_task_when_3days_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 3,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::Never,
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task_after_end() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 3,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:1},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_task_when_equal_to_end() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 3,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:4},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_before_first_due_has_no_task_for_weeks_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays{days:vec![WeekDay::Mon].into_iter().collect()}),
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:4},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-14", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_equal_to_start_date_has_no_task_for_weeks_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays{days:vec![WeekDay::Mon].into_iter().collect()}),
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:4},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_equal_to_first_due_has_task_for_weeks_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays{days:vec![WeekDay::Mon].into_iter().collect()}),
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:4},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-28", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task_for_weeks_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays{days:vec![WeekDay::Mon, WeekDay::Wed].into_iter().collect()}),
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:4},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-31", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task_after_end_for_weeks_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Weeks,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: Some(WeekDays{days:vec![WeekDay::Mon, WeekDay::Wed].into_iter().collect()}),
+                on_month_days: None,
+            },
+            ends_on: Ends::After{after:2},
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-04-04", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on_2(date, &tz);
+        assert!(!has_task);
     }
 }
