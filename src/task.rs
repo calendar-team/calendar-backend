@@ -499,6 +499,7 @@ pub struct Task {
     pub state: TaskState,
     pub due_on: String,
     pub done_on: Option<String>,
+    pub is_future: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -862,6 +862,7 @@ async fn get_tasks(
                 state: row.get(3).unwrap(),
                 due_on: row.get(4).unwrap(),
                 done_on: row.get(5).unwrap(),
+                is_future: false,
             })
         })
         .unwrap()
@@ -988,6 +989,7 @@ async fn get_all_tasks(
                 state: row.get(3).unwrap(),
                 due_on: row.get(4).unwrap(),
                 done_on: row.get(5).unwrap(),
+                is_future: false,
             },)
     })
     .unwrap()
@@ -999,7 +1001,7 @@ async fn get_all_tasks(
         .map(|t| (t.task_def_id.clone(), t.name.clone()))
         .collect();
 
-    let missing_tasks: Vec<Task> = task_defs
+    let future_tasks: Vec<Task> = task_defs
         .iter()
         .filter(|td| !existing_tasks.contains(td))
         .map(|t| Task {
@@ -1009,10 +1011,11 @@ async fn get_all_tasks(
             state: TaskState::Pending,
             due_on: date.to_rfc3339(),
             done_on: None,
+            is_future: true,
         })
         .collect();
 
-    tasks.extend(missing_tasks);
+    tasks.extend(future_tasks);
 
     Ok(HttpResponse::Ok().json(tasks))
 }
@@ -1054,6 +1057,7 @@ async fn update_task(
                 state: row.get(1).unwrap(),
                 due_on: row.get(2).unwrap(),
                 done_on: row.get(3).unwrap(),
+                is_future: false,
             })
         })
         .unwrap();
