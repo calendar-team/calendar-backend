@@ -324,27 +324,21 @@ impl TaskDef {
     }
 
     /// Returns the boolean indicating whether there should be a task on given date
-    pub(crate) fn has_task_on(&self, date: NaiveDate, tz: Tz) -> bool {
+    pub(crate) fn naive_has_task_on(&self, date: NaiveDate, tz: &Tz) -> bool {
         let date = date
             .and_time(NaiveTime::default())
-            .and_local_timezone(tz)
+            .and_local_timezone(*tz)
             .unwrap()
             .to_utc();
 
         let mut count = 0;
         let mut last_due: Option<DateTime<Utc>> = None;
-        info!("ajuns");
         loop {
             let next_due = match last_due {
                 Some(last_due) => self.get_next(last_due.with_timezone(&tz)),
                 None => self.get_first(&tz),
             }
             .to_utc();
-
-            info!(
-                "Task ({}), next_due={}, last_due={:?}, count={}",
-                self.name, next_due, last_due, count
-            );
 
             if next_due < date {
                 count += 1;
@@ -355,14 +349,13 @@ impl TaskDef {
                 };
                 last_due = Some(next_due);
             } else {
-                info!("compare: {} == {} = {}", next_due, date, next_due == date);
                 return next_due == date;
             }
         }
     }
 
     /// Returns a boolean indicating whether there should be a task on given date
-    pub(crate) fn has_task_on_2(&self, date: NaiveDate, tz: &Tz) -> bool {
+    pub(crate) fn has_task_on(&self, date: NaiveDate, tz: &Tz) -> bool {
         let first_due: NaiveDate = self.get_first(tz).date_naive();
 
         if first_due > date {
@@ -438,11 +431,7 @@ impl TaskDef {
             }
 
             RecurrenceType::Months => {
-                let on_days = &self.recurrence.on_month_days.as_ref().unwrap().days;
-                let delta_months = ((date.year() - first_due.year()) as u32) * 12
-                    + (date.month() - first_due.month());
-
-                delta_months % self.recurrence.every == 0 && on_days.contains(&date.day())
+                return self.naive_has_task_on(date, tz);
             }
 
             RecurrenceType::Years => {
@@ -925,7 +914,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2015-09-05", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -949,7 +938,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -973,7 +962,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-29", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -997,7 +986,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-29", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1021,7 +1010,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1045,7 +1034,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1069,7 +1058,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1095,7 +1084,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-14", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1121,7 +1110,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1147,7 +1136,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-28", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1173,7 +1162,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-31", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1199,7 +1188,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-04", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1225,7 +1214,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-06", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1251,7 +1240,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-27", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1277,7 +1266,7 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-28", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1303,7 +1292,137 @@ mod tests {
         let tz: Tz = "Europe/Bucharest".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-04-01", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_before_first_due_has_no_task_for_months_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: vec![20].into_iter().collect(),
+                }),
+            },
+            ends_on: Ends::After { after: 3 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(!has_task);
+    }
+
+    #[test]
+    fn date_in_first_due_has_task_for_months_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: vec![25].into_iter().collect(),
+                }),
+            },
+            ends_on: Ends::After { after: 3 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_task_on_last_day_of_month_for_months_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: vec![31].into_iter().collect(),
+                }),
+            },
+            ends_on: Ends::After { after: 3 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-04-30", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_task_on_last_day_of_february_month_for_months_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: vec![30, 31].into_iter().collect(),
+                }),
+            },
+            ends_on: Ends::After { after: 20 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2023-02-28", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task_after_end_for_months_recurrence() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Months,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: Some(MonthDays {
+                    days: vec![30, 31].into_iter().collect(),
+                }),
+            },
+            ends_on: Ends::After { after: 10 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2023-02-28", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1329,7 +1448,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-20", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1355,7 +1474,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-03-24", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1381,7 +1500,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2022-07-24", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1407,7 +1526,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2026-03-24", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1433,7 +1552,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2033-03-24", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(!has_task);
     }
 
@@ -1459,7 +1578,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2032-03-24", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1485,7 +1604,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2024-02-29", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 
@@ -1511,7 +1630,7 @@ mod tests {
         let tz: Tz = "America/Buenos_Aires".parse().unwrap();
 
         let date = NaiveDate::parse_from_str("2025-02-28", "%Y-%m-%d").unwrap();
-        let has_task = task_def.has_task_on_2(date, &tz);
+        let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
     }
 }

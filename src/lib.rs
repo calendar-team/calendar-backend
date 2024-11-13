@@ -948,7 +948,7 @@ async fn get_all_tasks(
 
     let task_defs: Vec<(String, String)> = tasks
         .iter()
-        .filter(|td| td.has_task_on(date, tz))
+        .filter(|td| td.has_task_on(date, &tz))
         .map(|td| (td.id.clone(), td.name.clone()))
         .collect();
 
