@@ -21,6 +21,7 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::Datelike;
 use chrono::NaiveDate;
 use chrono::NaiveTime;
 use chrono_tz::Tz;
@@ -898,6 +899,15 @@ async fn get_all_tasks(
     }
 
     let date = date.unwrap();
+
+    let now = (state.utc_now)();
+    let max_date = now.with_year(now.year() + 50).unwrap().date_naive();
+
+    if date > max_date{
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "`date` path param is not valid. Date cannot exceed 50 years in the future! (i.e.: {})", max_date
+        )));
+    }
 
     info!(
         "Get all tasks that are due on {} for user `{}`",
