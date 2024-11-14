@@ -331,25 +331,20 @@ impl TaskDef {
             .to_utc();
 
         let mut count = 0;
-        let mut last_due: Option<DateTime<Utc>> = None;
+        let mut due: DateTime<Utc> = self.get_first(tz).to_utc();
         loop {
-            let next_due = match last_due {
-                Some(last_due) => self.get_next(last_due.with_timezone(tz)),
-                None => self.get_first(tz),
-            }
-            .to_utc();
+            count += 1;
+            if let crate::task::Ends::After { after } = self.ends_on {
+                if count > after {
+                    return false;
+                }
+            };
 
-            if next_due < date {
-                count += 1;
-                if let crate::task::Ends::After { after } = self.ends_on {
-                    if count == after {
-                        return false;
-                    }
-                };
-                last_due = Some(next_due);
-            } else {
-                return next_due == date;
+            if due >= date {
+                return due == date;
             }
+
+            due = self.get_next(due.with_timezone(tz)).to_utc();
         }
     }
 
