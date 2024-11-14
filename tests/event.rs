@@ -948,10 +948,7 @@ async fn create_task_def_works() {
 
     // Act - mark task as done
     let response = reqwest::Client::new()
-        .put(&format!(
-            "{}/habit/{}/tasks/{}",
-            &address, &other_habit_id, tasks[0].id
-        ))
+        .put(&format!("{}/tasks/{}", &address, tasks[0].id))
         .bearer_auth(&jwt.token)
         .json(&state)
         .send()

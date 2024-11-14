@@ -21,14 +21,22 @@ use actix_web::{
 use anyhow::Context;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::Datelike;
+use chrono::NaiveDate;
+use chrono::NaiveTime;
+use chrono_tz::Tz;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use regex::Regex;
+use rusqlite::types::Value;
+use rusqlite::Error;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::env;
 use std::fmt::Debug;
 use std::net::TcpListener;
+use std::rc::Rc;
 use std::time::Duration;
 use types::State;
 use types::UtcNowFn;
@@ -240,7 +248,8 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             .service(create_task_def)
             .service(delete_task_def)
             .service(get_tasks)
-            .service(complete_task)
+            .service(get_all_tasks)
+            .service(update_task)
     });
 
     server = server.listen(tcp_listener)?;
@@ -843,15 +852,17 @@ async fn get_tasks(
     }
 
     let tasks: Vec<Task> = conn
-        .prepare("SELECT t.id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id=?1")
+        .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE td.habit_id=?1")
         .unwrap()
         .query_map([&habit_id], |row| {
             Ok(Task{
                 id: row.get(0).unwrap(),
-                name: row.get(1).unwrap(),
-                state: row.get(2).unwrap(),
-                due_on: row.get(3).unwrap(),
-                done_on: row.get(4).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
+                is_future: false,
             })
         })
         .unwrap()
@@ -861,14 +872,14 @@ async fn get_tasks(
     Ok(HttpResponse::Ok().json(tasks))
 }
 
-#[put("/habit/{habit_id}/tasks/{task_id}")]
-async fn complete_task(
+#[put("/tasks/{task_id}")]
+async fn update_task(
     req: HttpRequest,
-    path: web::Path<(String, String)>,
+    path: web::Path<String>,
     task: web::Json<TaskInput>,
     state: web::Data<State>,
 ) -> Result<HttpResponse, CustomError> {
-    let (habit_id, task_id) = path.into_inner();
+    let task_id = path.into_inner();
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
     info!("Update task");
 
@@ -876,8 +887,8 @@ async fn complete_task(
 
     let habit_id: Option<String> = conn
         .query_row_and_then(
-            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.id=?1 AND h.username=?2 AND t.id=?3",
-            (&habit_id, &username, &task_id),
+            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.username=?1 AND t.id=?2",
+            (&username, &task_id),
             |row| row.get(0),
         )
         .optional()
@@ -887,36 +898,23 @@ async fn complete_task(
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let db_task = conn
-        .prepare("SELECT id, state, due_on, done_on FROM task where id=?1")
+    let task_due_date: String = conn
+        .prepare("SELECT due_on FROM task where id=?1")
         .unwrap()
-        .query_row([&task_id], |row| {
-            Ok(Task {
-                id: row.get(0).unwrap(),
-                name: "".to_string(),
-                state: row.get(1).unwrap(),
-                due_on: row.get(2).unwrap(),
-                done_on: row.get(3).unwrap(),
-            })
-        })
+        .query_row([&task_id], |row| Ok(row.get(0).unwrap()))
         .unwrap();
 
-    if !matches!(db_task.state, TaskState::Pending) {
-        return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "Only tasks in Pending state can be changed"
-        )));
-    }
+    let result = match task.state {
+        TaskState::Pending => conn.execute(
+            "UPDATE task SET state=?1, done_on=NULL WHERE id=?2",
+            (&task.state, &task_id),
+        ),
 
-    if !matches!(task.state, TaskState::Done) && !matches!(task.state, TaskState::Cancelled) {
-        return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "A task can only be transitioned to `Done` or `Cancelled` states"
-        )));
-    }
-
-    let result = conn.execute(
-        "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
-        (&task.state, db_task.due_on, &task_id),
-    );
+        TaskState::Done | TaskState::Cancelled => conn.execute(
+            "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
+            (&task.state, task_due_date, &task_id),
+        ),
+    };
 
     match result {
         Ok(updated) => {
@@ -937,6 +935,155 @@ async fn complete_task(
     }
 
     Ok(HttpResponse::Ok().finish())
+}
+
+#[get("/tasks/{date}")]
+async fn get_all_tasks(
+    req: HttpRequest,
+    path: web::Path<String>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let tz: Tz = conn
+        .query_row(
+            "SELECT time_zone FROM user WHERE username=?1",
+            [&username],
+            |row| Ok(row.get::<usize, String>(0).unwrap().parse().unwrap()),
+        )
+        .unwrap();
+
+    let date = NaiveDate::parse_from_str(&path.into_inner(), "%d-%m-%Y");
+
+    if date.is_err() {
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "`date` path param is not valid. Use the format: `%d-%m-%Y` (e.g.: 21-11-2024)"
+        )));
+    }
+
+    let date = date.unwrap();
+
+    let now = (state.utc_now)();
+    let max_date = now.with_year(now.year() + 50).unwrap().date_naive();
+
+    if date > max_date {
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "`date` path param is not valid. Date cannot exceed 50 years in the future! (i.e.: {})",
+            max_date
+        )));
+    }
+
+    info!(
+        "Get all tasks that are due on {} for user `{}`",
+        date, username
+    );
+
+    let mut stmt = conn
+        .prepare("SELECT id FROM habit WHERE username=:user")
+        .unwrap();
+
+    let rows = stmt
+        .query_map(&[(":user", &username)], |row| row.get(0))
+        .unwrap();
+
+    let habits = Rc::new(
+        rows.into_iter()
+            .map(|v: Result<String, Error>| v.unwrap())
+            .map(Value::from)
+            .collect::<Vec<Value>>(),
+    );
+
+    if habits.is_empty() {
+        return Ok(HttpResponse::Ok().json([0; 0]));
+    }
+
+    let tasks: Vec<TaskDef> = conn
+        .prepare("SELECT td.id, td.name, td.description, r.type, r.every, r.from_date, r.on_week_days, r.on_month_days, td.ends_on, td.state FROM task_def td JOIN recurrence r ON td.recurrence_id = r.id JOIN habit h ON td.habit_id = h.id WHERE h.id IN rarray(?1)")
+        .unwrap()
+        .query_map([habits], |row| {
+            Ok(TaskDef {
+                    id: row.get(0).unwrap(),
+                    name: row.get(1).unwrap(),
+                    description: row.get(2).unwrap(),
+                    recurrence: Recurrence {
+                        rec_type: row.get(3).unwrap(),
+                        every: row.get(4).unwrap(),
+                        from: row.get(5).unwrap(),
+                        on_week_days: row.get(6).unwrap(),
+                        on_month_days: row.get(7).unwrap(),
+                    },
+                    ends_on: row.get(8).unwrap(),
+                    state: row.get(9).unwrap(),
+                },)
+        })
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+
+    let task_defs: Vec<(String, String)> = tasks
+        .iter()
+        .filter(|td| td.has_task_on(date, &tz))
+        .map(|td| (td.id.clone(), td.name.clone()))
+        .collect();
+
+    let task_def_ids = Rc::new(
+        task_defs
+            .clone()
+            .into_iter()
+            .map(|t| t.0)
+            .map(Value::from)
+            .collect::<Vec<Value>>(),
+    );
+
+    let date = date
+        .and_time(NaiveTime::default())
+        .and_local_timezone(tz)
+        .unwrap()
+        .to_utc();
+
+    let mut tasks: Vec<Task> = conn
+    .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id=td.id WHERE task_def_id IN rarray(?1) AND due_on=?2")
+    .unwrap()
+    .query_map((task_def_ids, date.to_rfc3339()), |row| {
+        Ok(Task {
+                id: row.get(0).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
+                is_future: false,
+            },)
+    })
+    .unwrap()
+    .map(|row| row.unwrap())
+    .collect();
+
+    let existing_tasks: HashSet<(String, String)> = tasks
+        .iter()
+        .map(|t| (t.task_def_id.clone(), t.name.clone()))
+        .collect();
+
+    let future_tasks: Vec<Task> = task_defs
+        .iter()
+        .filter(|td| !existing_tasks.contains(td))
+        .map(|t| Task {
+            id: Uuid::new_v4().to_string(),
+            task_def_id: t.0.to_string(),
+            name: t.1.to_string(),
+            state: TaskState::Pending,
+            due_on: date.to_rfc3339(),
+            done_on: None,
+            is_future: true,
+        })
+        .collect();
+
+    tasks.extend(future_tasks);
+
+    Ok(HttpResponse::Ok().json(tasks))
 }
 
 #[post("/user")]
