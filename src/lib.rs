@@ -872,6 +872,81 @@ async fn get_tasks(
     Ok(HttpResponse::Ok().json(tasks))
 }
 
+#[put("/tasks/{task_id}")]
+async fn update_task(
+    req: HttpRequest,
+    path: web::Path<String>,
+    task: web::Json<TaskInput>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    let task_id = path.into_inner();
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+    info!("Update task");
+
+    let conn = state.conn.lock().expect("failed to lock conn");
+
+    let habit_id: Option<String> = conn
+        .query_row_and_then(
+            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.username=?1 AND t.id=?2",
+            (&username, &task_id),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if habit_id.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
+    }
+
+    let db_task = conn
+        .prepare("SELECT id, state, due_on, done_on FROM task where id=?1")
+        .unwrap()
+        .query_row([&task_id], |row| {
+            Ok(Task {
+                id: row.get(0).unwrap(),
+                task_def_id: "".to_string(),
+                name: "".to_string(),
+                state: row.get(1).unwrap(),
+                due_on: row.get(2).unwrap(),
+                done_on: row.get(3).unwrap(),
+                is_future: false,
+            })
+        })
+        .unwrap();
+
+    let result = match task.state {
+        TaskState::Pending => conn.execute(
+            "UPDATE task SET state=?1, done_on=NULL WHERE id=?2",
+            (&task.state, &task_id),
+        ),
+
+        TaskState::Done | TaskState::Cancelled => conn.execute(
+            "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
+            (&task.state, db_task.due_on, &task_id),
+        ),
+    };
+
+    match result {
+        Ok(updated) => {
+            if updated == 0 {
+                info!("error editing task");
+                return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                    "Error when editing the task"
+                )));
+            }
+            info!("edited task");
+        }
+        Err(e) => {
+            info!("error editing task: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when editing the task"
+            )));
+        }
+    }
+
+    Ok(HttpResponse::Ok().finish())
+}
+
 #[get("/tasks/{date}")]
 async fn get_all_tasks(
     req: HttpRequest,
@@ -1019,81 +1094,6 @@ async fn get_all_tasks(
     tasks.extend(future_tasks);
 
     Ok(HttpResponse::Ok().json(tasks))
-}
-
-#[put("/tasks/{task_id}")]
-async fn update_task(
-    req: HttpRequest,
-    path: web::Path<String>,
-    task: web::Json<TaskInput>,
-    state: web::Data<State>,
-) -> Result<HttpResponse, CustomError> {
-    let task_id = path.into_inner();
-    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
-    info!("Update task");
-
-    let conn = state.conn.lock().expect("failed to lock conn");
-
-    let habit_id: Option<String> = conn
-        .query_row_and_then(
-            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE h.username=?1 AND t.id=?2",
-            (&username, &task_id),
-            |row| row.get(0),
-        )
-        .optional()
-        .unwrap();
-
-    if habit_id.is_none() {
-        return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
-    }
-
-    let db_task = conn
-        .prepare("SELECT id, state, due_on, done_on FROM task where id=?1")
-        .unwrap()
-        .query_row([&task_id], |row| {
-            Ok(Task {
-                id: row.get(0).unwrap(),
-                task_def_id: "".to_string(),
-                name: "".to_string(),
-                state: row.get(1).unwrap(),
-                due_on: row.get(2).unwrap(),
-                done_on: row.get(3).unwrap(),
-                is_future: false,
-            })
-        })
-        .unwrap();
-
-    let result = match task.state {
-        TaskState::Pending => conn.execute(
-            "UPDATE task SET state=?1, done_on=NULL WHERE id=?2",
-            (&task.state, &task_id),
-        ),
-
-        TaskState::Done | TaskState::Cancelled => conn.execute(
-            "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
-            (&task.state, db_task.due_on, &task_id),
-        ),
-    };
-
-    match result {
-        Ok(updated) => {
-            if updated == 0 {
-                info!("error editing task");
-                return Err(CustomError::UnexpectedError(anyhow::anyhow!(
-                    "Error when editing the task"
-                )));
-            }
-            info!("edited task");
-        }
-        Err(e) => {
-            info!("error editing task: {}", e);
-            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
-                "Error when editing the task"
-            )));
-        }
-    }
-
-    Ok(HttpResponse::Ok().finish())
 }
 
 #[post("/user")]
