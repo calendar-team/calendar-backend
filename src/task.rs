@@ -397,31 +397,34 @@ impl TaskDef {
                 let monday_of_date = date.checked_sub_days(Days::new(date_weekday)).unwrap();
 
                 let delta_weeks = (monday_of_date - monday_of_first_due).num_weeks() as u32;
-                
+
                 delta_weeks % self.recurrence.every == 0
                     && on_days.contains(&date_weekday)
                     && match self.ends_on {
                         Ends::Never => true,
                         Ends::After { after } => {
+                            let mut counter = if delta_weeks > 1 {
+                                (delta_weeks - 1) / self.recurrence.every * on_days.len() as u32
+                            } else {
+                                0
+                            };
 
-                            let mut counter = if delta_weeks > 1 { (delta_weeks - 1) / self.recurrence.every * on_days.len() as u32} else {0};
-                            
-                            if delta_weeks == 0{
-                                for i in first_due_weekday .. date_weekday + 1{
-                                    if on_days.contains(&i){
+                            if delta_weeks == 0 {
+                                for i in first_due_weekday..date_weekday + 1 {
+                                    if on_days.contains(&i) {
                                         counter = counter + 1;
                                     }
                                 }
                                 return counter <= after;
                             }
-                            for i in first_due_weekday .. 7{
-                                if on_days.contains(&i){
+                            for i in first_due_weekday..7 {
+                                if on_days.contains(&i) {
                                     counter = counter + 1;
                                 }
                             }
 
-                            for i in 0 .. date_weekday + 1{
-                                if on_days.contains(&i){
+                            for i in 0..date_weekday + 1 {
+                                if on_days.contains(&i) {
                                     counter = counter + 1;
                                 }
                             }
@@ -1230,7 +1233,9 @@ mod tests {
                 every: 1,
                 from: "2022-03-24T22:00:00+00:00".to_string(),
                 on_week_days: Some(WeekDays {
-                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun].into_iter().collect(),
+                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun]
+                        .into_iter()
+                        .collect(),
                 }),
                 on_month_days: None,
             },
@@ -1256,7 +1261,9 @@ mod tests {
                 every: 1,
                 from: "2022-03-24T22:00:00+00:00".to_string(),
                 on_week_days: Some(WeekDays {
-                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun].into_iter().collect(),
+                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun]
+                        .into_iter()
+                        .collect(),
                 }),
                 on_month_days: None,
             },
@@ -1282,7 +1289,9 @@ mod tests {
                 every: 1,
                 from: "2022-03-24T22:00:00+00:00".to_string(),
                 on_week_days: Some(WeekDays {
-                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun].into_iter().collect(),
+                    days: vec![WeekDay::Mon, WeekDay::Fri, WeekDay::Sun]
+                        .into_iter()
+                        .collect(),
                 }),
                 on_month_days: None,
             },

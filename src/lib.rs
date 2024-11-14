@@ -904,9 +904,10 @@ async fn get_all_tasks(
     let now = (state.utc_now)();
     let max_date = now.with_year(now.year() + 50).unwrap().date_naive();
 
-    if date > max_date{
+    if date > max_date {
         return Err(CustomError::BadRequest(anyhow::anyhow!(
-            "`date` path param is not valid. Date cannot exceed 50 years in the future! (i.e.: {})", max_date
+            "`date` path param is not valid. Date cannot exceed 50 years in the future! (i.e.: {})",
+            max_date
         )));
     }
 
