@@ -334,8 +334,8 @@ impl TaskDef {
         let mut last_due: Option<DateTime<Utc>> = None;
         loop {
             let next_due = match last_due {
-                Some(last_due) => self.get_next(last_due.with_timezone(&tz)),
-                None => self.get_first(&tz),
+                Some(last_due) => self.get_next(last_due.with_timezone(tz)),
+                None => self.get_first(tz),
             }
             .to_utc();
 
@@ -411,20 +411,20 @@ impl TaskDef {
                             if delta_weeks == 0 {
                                 for i in first_due_weekday..date_weekday + 1 {
                                     if on_days.contains(&i) {
-                                        counter = counter + 1;
+                                        counter += 1;
                                     }
                                 }
                                 return counter <= after;
                             }
                             for i in first_due_weekday..7 {
                                 if on_days.contains(&i) {
-                                    counter = counter + 1;
+                                    counter += 1;
                                 }
                             }
 
                             for i in 0..date_weekday + 1 {
                                 if on_days.contains(&i) {
-                                    counter = counter + 1;
+                                    counter += 1;
                                 }
                             }
                             return counter <= after;
@@ -432,9 +432,7 @@ impl TaskDef {
                     }
             }
 
-            RecurrenceType::Months => {
-                return self.naive_has_task_on(date, tz);
-            }
+            RecurrenceType::Months => self.naive_has_task_on(date, tz),
 
             RecurrenceType::Years => {
                 if (date.year() - first_due.year()) % i32::try_from(self.recurrence.every).unwrap()
