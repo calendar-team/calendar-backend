@@ -898,20 +898,10 @@ async fn update_task(
         return Err(CustomError::NotFound(anyhow::anyhow!("Habit not found")));
     }
 
-    let db_task = conn
-        .prepare("SELECT id, state, due_on, done_on FROM task where id=?1")
+    let task_due_date: String = conn
+        .prepare("SELECT due_on FROM task where id=?1")
         .unwrap()
-        .query_row([&task_id], |row| {
-            Ok(Task {
-                id: row.get(0).unwrap(),
-                task_def_id: "".to_string(),
-                name: "".to_string(),
-                state: row.get(1).unwrap(),
-                due_on: row.get(2).unwrap(),
-                done_on: row.get(3).unwrap(),
-                is_future: false,
-            })
-        })
+        .query_row([&task_id], |row| Ok(row.get(0).unwrap()))
         .unwrap();
 
     let result = match task.state {
@@ -922,7 +912,7 @@ async fn update_task(
 
         TaskState::Done | TaskState::Cancelled => conn.execute(
             "UPDATE task SET state=?1, done_on=?2 WHERE id=?3",
-            (&task.state, db_task.due_on, &task_id),
+            (&task.state, task_due_date, &task_id),
         ),
     };
 

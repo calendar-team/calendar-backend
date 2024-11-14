@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use chrono::{DateTime, Datelike, Days, Months, NaiveDate, NaiveTime, Utc};
 use chrono_tz::Tz;
-use log::info;
 use rusqlite::types::{FromSqlResult, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
