@@ -19,6 +19,7 @@ use actix_web::{
     ResponseError,
 };
 use anyhow::Context;
+use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::Datelike;
@@ -1238,7 +1239,7 @@ fn validate_credentials(
 }
 
 fn hash(password: &String) -> String {
-    let salt = SaltString::generate(&mut rand::thread_rng());
+    let salt = SaltString::generate(&mut OsRng);
 
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
