@@ -502,6 +502,18 @@ pub struct TaskInput {
     pub state: TaskState,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskDetails {
+    pub id: String,
+    pub task_def_id: String,
+    pub name: String,
+    pub state: TaskState,
+    pub due_on: String,
+    pub done_on: Option<String>,
+    pub is_future: bool,
+    pub description: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

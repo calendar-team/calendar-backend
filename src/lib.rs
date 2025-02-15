@@ -39,6 +39,7 @@ use std::fmt::Debug;
 use std::net::TcpListener;
 use std::rc::Rc;
 use std::time::Duration;
+use task::TaskDetails;
 use types::State;
 use types::UtcNowFn;
 use uuid::Uuid;
@@ -251,6 +252,7 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             .service(get_tasks)
             .service(get_all_tasks)
             .service(update_task)
+            .service(get_task_details)
     });
 
     server = server.listen(tcp_listener)?;
@@ -1085,6 +1087,79 @@ async fn get_all_tasks(
     tasks.extend(future_tasks);
 
     Ok(HttpResponse::Ok().json(tasks))
+}
+
+#[get("/tasks/{date}/{task_id}")]
+async fn get_task_details(
+    req: HttpRequest,
+    path: web::Path<(String, String)>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    let (user_date, task_id) = path.into_inner();
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+    info!("Get details for task = {} and user = {}", task_id, username);
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    let tz: Tz = conn
+        .query_row(
+            "SELECT time_zone FROM user WHERE username=?1",
+            [&username],
+            |row| Ok(row.get::<usize, String>(0).unwrap().parse().unwrap()),
+        )
+        .unwrap();
+
+    let date = NaiveDate::parse_from_str(&user_date, "%d-%m-%Y");
+
+    if date.is_err() {
+        return Err(CustomError::BadRequest(anyhow::anyhow!(
+            "`date` path param is not valid. Use the format: `%d-%m-%Y` (e.g.: 21-11-2024)"
+        )));
+    }
+
+    let date = date
+        .unwrap()
+        .and_time(NaiveTime::default())
+        .and_local_timezone(tz)
+        .unwrap()
+        .to_utc();
+
+    let habit_id: Option<String> = conn
+        .query_row_and_then(
+            "SELECT h.id FROM habit h JOIN task_def td ON h.id = td.habit_id JOIN task t ON td.id = t.task_def_id WHERE t.id=?1 AND h.username=?2",
+            (&task_id, &username),
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    if habit_id.is_none() {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Task not found")));
+    }
+
+    let task_details = conn
+        .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on, td.description FROM task t JOIN task_def td ON t.task_def_id = td.id WHERE t.id=?1")
+        .unwrap()
+        .query_row([&task_id], |row| {
+            Ok(TaskDetails{
+                id: row.get(0).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
+                is_future: false,
+                description: row.get(6).unwrap(),
+            })
+        })
+        .unwrap();
+
+    if date.to_rfc3339() != task_details.due_on {
+        return Err(CustomError::NotFound(anyhow::anyhow!("Task not found")));
+    }
+
+    Ok(HttpResponse::Ok().json(task_details))
 }
 
 #[post("/user")]
