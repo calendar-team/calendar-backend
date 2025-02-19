@@ -250,9 +250,10 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             .service(create_task_def)
             .service(delete_task_def)
             .service(get_tasks)
-            .service(get_all_tasks)
+            .service(get_all_tasks_on_date)
             .service(update_task)
             .service(get_task_details)
+            .service(get_all_pending_tasks)
     });
 
     server = server.listen(tcp_listener)?;
@@ -941,7 +942,7 @@ async fn update_task(
 }
 
 #[get("/tasks/{date}")]
-async fn get_all_tasks(
+async fn get_all_tasks_on_date(
     req: HttpRequest,
     path: web::Path<String>,
     state: web::Data<State>,
@@ -1085,6 +1086,39 @@ async fn get_all_tasks(
         .collect();
 
     tasks.extend(future_tasks);
+
+    Ok(HttpResponse::Ok().json(tasks))
+}
+
+#[get("/tasks")]
+async fn get_all_pending_tasks(
+    req: HttpRequest,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+
+    info!("Get all pending tasks for user `{}`", username);
+
+    let tasks: Vec<Task> = conn
+    .prepare("SELECT t.id, t.task_def_id, td.name, t.state, t.due_on, t.done_on FROM task t JOIN task_def td ON t.task_def_id=td.id JOIN habit h ON td.habit_id = h.id WHERE h.username = ?1 AND t.state = '\"Pending\"'")
+    .unwrap()
+    .query_map([username], |row| {
+        Ok(Task {
+                id: row.get(0).unwrap(),
+                task_def_id: row.get(1).unwrap(),
+                name: row.get(2).unwrap(),
+                state: row.get(3).unwrap(),
+                due_on: row.get(4).unwrap(),
+                done_on: row.get(5).unwrap(),
+                is_future: false,
+            },)
+    })
+    .unwrap()
+    .map(|row| row.unwrap())
+    .collect();
 
     Ok(HttpResponse::Ok().json(tasks))
 }
