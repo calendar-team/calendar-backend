@@ -367,7 +367,7 @@ impl TaskDef {
                 num_days % every == 0
                     && match self.ends_on {
                         Ends::Never => true,
-                        Ends::After { after } => num_days / every <= after,
+                        Ends::After { after } => num_days / every < after,
                     }
             }
 
@@ -1068,6 +1068,34 @@ mod tests {
         let date = NaiveDate::parse_from_str("2022-04-03", "%Y-%m-%d").unwrap();
         let has_task = task_def.has_task_on(date, &tz);
         assert!(has_task);
+    }
+
+    #[test]
+    fn date_after_first_due_has_no_task_when_equal_to_end() {
+        let task_def = TaskDef {
+            id: "abc".to_string(),
+            name: "def".to_string(),
+            description: "".to_string(),
+            recurrence: Recurrence {
+                rec_type: RecurrenceType::Days,
+                every: 1,
+                from: "2022-03-24T22:00:00+00:00".to_string(),
+                on_week_days: None,
+                on_month_days: None,
+            },
+            ends_on: Ends::After { after: 1 },
+            state: TaskDefState::Active,
+        };
+
+        let tz: Tz = "Europe/Bucharest".parse().unwrap();
+
+        let date = NaiveDate::parse_from_str("2022-03-25", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(has_task);
+
+        let date = NaiveDate::parse_from_str("2022-03-26", "%Y-%m-%d").unwrap();
+        let has_task = task_def.has_task_on(date, &tz);
+        assert!(!has_task);
     }
 
     #[test]

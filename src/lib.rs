@@ -31,6 +31,7 @@ use log::{error, info};
 use regex::Regex;
 use rusqlite::types::Value;
 use rusqlite::Error;
+use rusqlite::Transaction;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -152,7 +153,8 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
             name        TEXT NOT NULL,
             description TEXT NOT NULL,
             username    TEXT NOT NULL,
-            UNIQUE(username, name),
+            is_ad_hoc   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (username, name, is_ad_hoc),
             FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
         )",
             (),
@@ -261,25 +263,21 @@ pub fn run(tcp_listener: TcpListener, state: State) -> Result<Server, std::io::E
     Ok(server.run())
 }
 
-#[post("/habit")]
-async fn create_habit(
-    req: HttpRequest,
-    habit: web::Json<InputHabit>,
-    state: web::Data<State>,
-) -> Result<HttpResponse, CustomError> {
-    info!("Create new habit");
-    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
-
-    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
-    let conn = &mut *stmt_result;
+fn create_habit_in_db(
+    tx: &Transaction,
+    username: &String,
+    habit: &InputHabit,
+    is_ad_hoc: bool,
+) -> Result<String, CustomError> {
     let habit_id = Uuid::new_v4();
-    let result = conn.execute(
-        "INSERT INTO habit (id, username, name, description) VALUES (?1, ?2, ?3, ?4)",
+    let result = tx.execute(
+        "INSERT INTO habit (id, username, name, description, is_ad_hoc) VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             &habit_id.to_string(),
             &username,
             &habit.name,
             &habit.description,
+            if is_ad_hoc { 1 } else { 0 },
         ),
     );
     match result {
@@ -293,8 +291,41 @@ async fn create_habit(
             )));
         }
     }
+
+    Ok(habit_id.to_string())
+}
+
+#[post("/habit")]
+async fn create_habit(
+    req: HttpRequest,
+    habit: web::Json<InputHabit>,
+    state: web::Data<State>,
+) -> Result<HttpResponse, CustomError> {
+    info!("Create new habit");
+    let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
+
+    let mut stmt_result = state.conn.lock().expect("failed to lock conn");
+    let conn = &mut *stmt_result;
+    let tx = conn.transaction().unwrap();
+
+    let habit_id = create_habit_in_db(&tx, &username, &habit, false)?;
+
+    let result = tx.commit();
+
+    match result {
+        Ok(_) => {
+            info!("successfully commited the transaction");
+        }
+        Err(e) => {
+            error!("error commiting the transaction: {}", e);
+            return Err(CustomError::UnexpectedError(anyhow::anyhow!(
+                "Error when commiting create habit transaction"
+            )));
+        }
+    }
+
     Ok(HttpResponse::Ok().json(ResponseHabitDetails {
-        id: habit_id.to_string(),
+        id: habit_id,
         name: habit.name.clone(),
         description: habit.description.clone(),
     }))
@@ -571,6 +602,30 @@ async fn get_tasks_defs(
     Ok(HttpResponse::Ok().json(tasks_defs))
 }
 
+fn get_ad_hoc_habit_id(tx: &Transaction, username: &String) -> Result<String, CustomError> {
+    let habit_id: Option<String> = tx
+        .query_row_and_then(
+            "SELECT id FROM habit WHERE username=?1 AND is_ad_hoc = 1",
+            [username],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+
+    match habit_id {
+        Some(id) => Ok(id),
+        None => create_habit_in_db(
+            tx,
+            username,
+            &InputHabit {
+                name: "AD_HOC".to_string(),
+                description: r#"{"root":{"children":[{"children":[],"direction":null,"format":"","indent":0,"type":"paragraph","version":1}],"direction":null,"format":"","indent":0,"type":"root","version":1}}"#.to_string(),
+            },
+            true,
+        ),
+    }
+}
+
 #[post("/habit/{habit_id}/tasks_defs")]
 async fn create_task_def(
     req: HttpRequest,
@@ -580,11 +635,17 @@ async fn create_task_def(
 ) -> Result<HttpResponse, CustomError> {
     info!("Create new task definition");
     let username = authenticate(req.headers(), state.utc_now).map_err(CustomError::AuthError)?;
-    let habit_id = path.into_inner();
+    let path_habit_id = path.into_inner();
 
     let mut stmt_result = state.conn.lock().expect("failed to lock conn");
     let conn = &mut *stmt_result;
     let tx = conn.transaction().unwrap();
+
+    let habit_id = if path_habit_id == "ad-hoc" {
+        get_ad_hoc_habit_id(&tx, &username)?
+    } else {
+        path_habit_id
+    };
 
     let habit_id: Option<String> = tx
         .query_row_and_then(
