@@ -100,7 +100,7 @@ Unfortunately, SQLite doesn't support changing the unique constraint.
 To achieve this change in the live env, we need to apply the following workaround:
 
 1. Stop the application: `kubectl -n calendar-backend edit deploy calendar-backend` and then change the `replicas` to 0
-2. Deploy an image that contains the sqlite CLI:
+2. Deploy an image that contains the sqlite CLI: `kubectl -n calendar-backend apply -f pod.yaml`, where the `pod.yaml` has the following content:
    ```yaml
    kind: Deployment
    metadata:
