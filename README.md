@@ -66,7 +66,9 @@ CREATE TABLE habit (
     description TEXT NOT NULL,
     username    TEXT NOT NULL,
     UNIQUE (username, name),
-    FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY (username) REFERENCES 
+      user (username) ON DELETE CASCADE 
+        ON UPDATE CASCADE
 )
 ```
 </td>
@@ -81,7 +83,9 @@ CREATE TABLE habit (
     username    TEXT NOT NULL,
     is_ad_hoc   INTEGER NOT NULL DEFAULT 0,
     UNIQUE (username, name, is_ad_hoc),
-    FOREIGN KEY (username) REFERENCES user (username) ON DELETE CASCADE ON UPDATE CASCADE
+    FOREIGN KEY (username) REFERENCES 
+      user (username) ON DELETE CASCADE 
+        ON UPDATE CASCADE
 )
 ```
 </td>
