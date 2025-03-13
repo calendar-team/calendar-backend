@@ -20,7 +20,7 @@ rusqlite = { version = "0.34.0", features = ["bundled", "array"] }
 actix-web = { version = "4.10.2" }
 actix-cors = "0.7.1"
 reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1.44.0", features = ["macros", "rt-multi-thread", "test-util"] }
+tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "test-util"] }
 secrecy = { version = "0.10" }
 anyhow = "1"
 thiserror = "2"
