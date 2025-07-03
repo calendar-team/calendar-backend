@@ -102,6 +102,7 @@ To achieve this change in the live env, we need to apply the following workaroun
 1. Stop the application: `kubectl -n calendar-backend edit deploy calendar-backend` and then change the `replicas` to 0
 2. Deploy an image that contains the sqlite CLI: `kubectl -n calendar-backend apply -f pod.yaml`, where the `pod.yaml` has the following content:
    ```yaml
+   apiVersion: apps/v1
    kind: Deployment
    metadata:
      name: sqlite3-deployment
