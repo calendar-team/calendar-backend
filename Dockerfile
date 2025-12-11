@@ -1,4 +1,4 @@
-FROM rust:1.91.1 AS build
+FROM rust:1.92.0 AS build
 
 WORKDIR /usr/src/calendar-backend
 COPY . .
