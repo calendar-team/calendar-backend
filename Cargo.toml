@@ -29,5 +29,5 @@ argon2 = { version = "0.5.3", features = ["std"] }
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 chrono = "0.4.44"
 chrono-tz = "0.10.4"
-uuid = { version = "1.21.0", features = ["v4"] }
+uuid = { version = "1.22.0", features = ["v4"] }
 serial_test = "3.4.0"
